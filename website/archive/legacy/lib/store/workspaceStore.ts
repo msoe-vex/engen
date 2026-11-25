@@ -1,5 +1,5 @@
-import { NotebookMetadata, EMPTY_METADATA, TeamMetadata, ProjectPhase, EntryMetadata, hydrateTeamAssets, TipTapNode, buildResourceTypeIndex, extractResources, moveEntryOnCalendar, reorderTemplateSequence, serializeNotebookMetadata, formatAuthors, parseAuthors, normalizeNotebookMetadata, notebookIndexEqualIgnoringUpdatedAt } from "../notebook/metadata";
-import { cloneNotebookMetadata, collectEntryFileIds, entryArtifactPaths, reconcileNotebookMerge } from "../notebook/mergeReconcile";
+import { NotebookMetadata, EMPTY_METADATA, TeamMetadata, ProjectPhase, EntryMetadata, hydrateTeamAssets, TipTapNode, buildResourceTypeIndex, extractResources, moveEntryOnCalendar, reorderTemplateSequence, serializeNotebookMetadata, formatAuthors, parseAuthors, normalizeNotebookMetadata } from "../notebook/metadata";
+import { assetDeletesSafeToPush, cloneNotebookMetadata, collectEntryFileIds, entryArtifactPaths, isAssetPath, mergeInMemoryIndexAheadOfStaged, reconcileNotebookMerge } from "../notebook/mergeReconcile";
 import { INDEX_PATH, ENTRIES_DIR, LATEX_DIR, TEAM_PATH, PHASES_PATH, ENTRIES_INDEX_PATH } from "../constants";
 import { generateEntryLatex, generateTeamLatex, generatePhasesLatex, generateAllEntriesLatex, latexPhaseRef } from "../latex/latex";
 import { ExplorerFile, GitHubConfig, TeamTab } from "../types";
@@ -201,6 +201,10 @@ class WorkspaceStore implements IWorkspaceStore {
     return this.entryManager.repairDuplicateResourceIds();
   }
 
+  public async syncAllEntryResourcesFromFiles() {
+    return this.entryManager.syncAllEntryResourcesFromFiles();
+  }
+
   public async duplicateEntry(sourceId: string, options?: { asTemplate?: boolean; title?: string; authors?: string[]; phase?: string | null; date?: string }) {
     return this.entryManager.duplicateEntry(sourceId, options);
   }
@@ -268,9 +272,43 @@ class WorkspaceStore implements IWorkspaceStore {
 
   public async reorderCalendarEntry(movedId: string, targetDate: string, dayIds: string[], toIndex: number) {
     this.metadata = moveEntryOnCalendar(this.metadata, movedId, targetDate, dayIds, toIndex);
+    // Keep the open editor in sync — otherwise the next auto-save writes the old date
+    // back into notebook.json and clears the pending metadata change.
+    if (this.openFile?.id === movedId) {
+      this.openFile = { ...this.openFile, date: targetDate, updatedAt: new Date().toISOString() };
+    }
     this.notifyStateChange();
     await this.enqueue(async () => {
       await this.persistFile(INDEX_PATH, serializeNotebookMetadata(this.metadata), "Reorder calendar entries");
+      const entry = this.metadata.entries[movedId];
+      if (entry && !entry.isTemplate) {
+        const latexPath = `${LATEX_DIR}/${movedId}.tex`;
+        let contentJson: TipTapNode | null = null;
+        try {
+          const raw = this.lastSavedContents.get(entry.filename)
+            || await this.getFileContent(entry.filename);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            contentJson = parsed?.content && !parsed.type ? parsed.content : parsed;
+          }
+        } catch { /* fall through */ }
+        if (contentJson) {
+          const resources = extractResources(contentJson);
+          const resourceTypes = buildResourceTypeIndex(this.metadata.entries, resources, movedId);
+          const latex = generateEntryLatex(
+            JSON.stringify(contentJson),
+            entry.title,
+            entry.authors,
+            latexPhaseRef(entry.phase, this.metadata.phases),
+            entry.createdAt,
+            movedId,
+            resourceTypes,
+            entry.date
+          );
+          await this.persistFile(latexPath, latex, `Update date LaTeX: ${entry.title}`);
+          this.lastSavedContents.set(latexPath, latex);
+        }
+      }
       await this.updateLatexMetadata();
     });
   }
@@ -325,12 +363,93 @@ class WorkspaceStore implements IWorkspaceStore {
   }
 
   // ─── Sync / Git Operations ──────────────────────────────────────────────────
+
+  /**
+   * Rewrite staged notebook.json by 3-way merging with live remote.
+   * Without this, Source Control diffs compare a stale full-index snapshot to
+   * remote and look like User B is deleting User A's newly added assets —
+   * even when B only edited a different entry.
+   */
+  public async reconcileStagedIndexWithRemote(): Promise<boolean> {
+    if (this.mode !== "github") return false;
+    const dbName = this.getDBName();
+    const all = await getAllPending(dbName);
+    const pendingIndex = all.find((p) => p.path === INDEX_PATH && p.operation === "upsert");
+    if (!pendingIndex?.content) return false;
+
+    const remoteIndexContent = await this.transferManager.getBaseFileContent(INDEX_PATH);
+    if (!remoteIndexContent) return false;
+
+    try {
+      const remoteMetadata = normalizeNotebookMetadata({
+        ...EMPTY_METADATA,
+        ...JSON.parse(remoteIndexContent),
+      });
+      const persistedBase = await getBaseMetadata(dbName);
+      const baseMetadata = persistedBase
+        ? normalizeNotebookMetadata({ ...EMPTY_METADATA, ...persistedBase })
+        : this.baseMetadata
+          ? cloneNotebookMetadata(this.baseMetadata)
+          : null;
+
+      let localMetadata: NotebookMetadata;
+      try {
+        localMetadata = normalizeNotebookMetadata({
+          ...EMPTY_METADATA,
+          ...JSON.parse(pendingIndex.content),
+        });
+        localMetadata = mergeInMemoryIndexAheadOfStaged(localMetadata, this.metadata);
+      } catch {
+        localMetadata = this.metadata;
+      }
+
+      const { fileIds, pendingUpsertIds, pendingDeleteIds } = collectEntryFileIds(
+        this.entries.map((e) => e.path),
+        all
+      );
+      const { merged } = reconcileNotebookMerge(baseMetadata, localMetadata, remoteMetadata, {
+        fileIds,
+        pendingUpsertIds,
+        pendingDeleteIds,
+      });
+
+      const mergedStr = serializeNotebookMetadata(merged);
+      if (mergedStr === pendingIndex.content) {
+        // Still refresh in-memory index if it lagged the staged merge.
+        if (serializeNotebookMetadata(this.metadata) !== mergedStr) {
+          this.metadata = merged;
+          this.notifyStateChange();
+        }
+        return false;
+      }
+
+      this.metadata = merged;
+      await stageChange(dbName, {
+        path: INDEX_PATH,
+        content: mergedStr,
+        operation: "upsert",
+        changeType: pendingIndex.changeType || "update",
+        label: pendingIndex.label || "Merge remote notebook metadata",
+        stagedAt: new Date().toISOString(),
+      });
+      await this.refreshPending();
+      this.notifyStateChange();
+      return true;
+    } catch (err) {
+      console.warn("Failed to reconcile staged notebook.json with remote:", err);
+      return false;
+    }
+  }
+
   async commitAll(config: GitHubConfig, customMessage?: string) {
     this.isCommitting = true;
     this.notifyStateChange();
     const currentOpenId = this.openFile?.id ?? null;
     try {
+      await this.debouncedPersist.flush();
       await this.queue;
+      // Fold remote-only index changes into staged notebook.json before building the push set.
+      await this.reconcileStagedIndexWithRemote();
       const dbName = this.getDBName();
       const all = await getAllPending(dbName);
       const { commitChanges } = await import("../github/github");
@@ -351,11 +470,7 @@ class WorkspaceStore implements IWorkspaceStore {
             await removeStaged(dbName, change.path);
             continue;
           }
-        } else if (
-          committedContent !== null &&
-          (committedContent === nextContent ||
-            (change.path === INDEX_PATH && notebookIndexEqualIgnoringUpdatedAt(committedContent, nextContent)))
-        ) {
+        } else if (committedContent !== null && committedContent === nextContent) {
           await removeStaged(dbName, change.path);
           continue;
         }
@@ -381,30 +496,51 @@ class WorkspaceStore implements IWorkspaceStore {
             ? normalizeNotebookMetadata({ ...EMPTY_METADATA, ...persistedBase })
             : (this.baseMetadata ? cloneNotebookMetadata(this.baseMetadata) : null);
 
-          const { fileIds, pendingUpsertIds } = collectEntryFileIds(this.entries.map(e => e.path), all);
-          const { merged, hasCollisions, collidingEntryIds, orphanIds } = reconcileNotebookMerge(
+          // Prefer staged notebook.json as local — it is what we would push without merging.
+          const pendingIndex = all.find((p) => p.path === INDEX_PATH && p.operation === "upsert");
+          let localMetadata = this.metadata;
+          if (pendingIndex?.content) {
+            try {
+              localMetadata = normalizeNotebookMetadata({
+                ...EMPTY_METADATA,
+                ...JSON.parse(pendingIndex.content),
+              });
+              localMetadata = mergeInMemoryIndexAheadOfStaged(localMetadata, this.metadata);
+            } catch (err) {
+              console.warn("Failed to parse pending notebook.json for merge; using in-memory metadata:", err);
+            }
+          }
+
+          const { fileIds, pendingUpsertIds, pendingDeleteIds } = collectEntryFileIds(this.entries.map(e => e.path), all);
+          const { merged, hasCollisions, collidingEntryIds, conflictKinds, orphanIds } = reconcileNotebookMerge(
             baseMetadata,
-            this.metadata,
+            localMetadata,
             remoteMetadata,
-            { fileIds, pendingUpsertIds }
+            { fileIds, pendingUpsertIds, pendingDeleteIds }
           );
 
           if (hasCollisions && collidingEntryIds.length > 0) {
             // Level 2: Prompt user for resolution choice on conflicting entries
             const conflictsList = collidingEntryIds.map(id => {
-              const localMeta = this.metadata.entries[id];
+              const localMeta = localMetadata.entries[id] || this.metadata.entries[id];
               const remoteMeta = remoteMetadata.entries?.[id];
+              const kind = conflictKinds[id] || "both_edited";
               return {
                 id,
-                localTitle: localMeta?.title || "Untitled",
-                remoteTitle: remoteMeta?.title || "Untitled",
-                localAuthor: formatAuthors(localMeta?.authors),
+                kind,
+                localTitle: kind === "local_delete_remote_edit"
+                  ? (baseMetadata?.entries?.[id]?.title || remoteMeta?.title || "Untitled")
+                  : (localMeta?.title || "Untitled"),
+                remoteTitle: kind === "local_edit_remote_delete"
+                  ? (baseMetadata?.entries?.[id]?.title || localMeta?.title || "Untitled")
+                  : (remoteMeta?.title || "Untitled"),
+                localAuthor: formatAuthors(localMeta?.authors || baseMetadata?.entries?.[id]?.authors),
                 remoteAuthor: formatAuthors(parseAuthors(
                   remoteMeta && typeof remoteMeta === "object" ? (remoteMeta as { authors?: unknown; author?: unknown }).authors : undefined,
                   remoteMeta && typeof remoteMeta === "object" ? (remoteMeta as { authors?: unknown; author?: unknown }).author : undefined
                 )),
-                localDate: localMeta?.date,
-                remoteDate: remoteMeta?.date,
+                localDate: localMeta?.date || baseMetadata?.entries?.[id]?.date,
+                remoteDate: remoteMeta?.date || baseMetadata?.entries?.[id]?.date,
                 localUpdatedAt: localMeta?.updatedAt,
                 remoteUpdatedAt: remoteMeta?.updatedAt,
               };
@@ -425,26 +561,95 @@ class WorkspaceStore implements IWorkspaceStore {
 
             // Apply resolution actions
             for (const [entryId, action] of Object.entries(resolutions)) {
-              if (action === "keep_remote") {
-                // Discard local edits for this entry
-                merged.entries[entryId] = remoteMetadata.entries[entryId];
-                const entryJsonPath = `${ENTRIES_DIR}/${entryId}.json`;
-                const entryTexPath = `${LATEX_DIR}/${entryId}.tex`;
-                const remoteEntryJson = this.getFullPath(entryJsonPath);
-                const remoteEntryTex = this.getFullPath(entryTexPath);
+              const kind = conflictKinds[entryId] || "both_edited";
+              const entryJsonPath = `${ENTRIES_DIR}/${entryId}.json`;
+              const entryTexPath = `${LATEX_DIR}/${entryId}.tex`;
+              const remoteEntryJson = this.getFullPath(entryJsonPath);
+              const remoteEntryTex = this.getFullPath(entryTexPath);
 
+              const removeFromGitChanges = () => {
                 const jsonIdx = gitChanges.findIndex(c => c.path === remoteEntryJson);
                 if (jsonIdx >= 0) gitChanges.splice(jsonIdx, 1);
                 const texIdx = gitChanges.findIndex(c => c.path === remoteEntryTex);
                 if (texIdx >= 0) gitChanges.splice(texIdx, 1);
+              };
 
+              const stageDeleteInGitChanges = () => {
+                const jsonIdx = gitChanges.findIndex(c => c.path === remoteEntryJson);
+                if (jsonIdx >= 0) gitChanges[jsonIdx].content = null;
+                else gitChanges.push({ path: remoteEntryJson, content: null, isBinary: false });
+                const texIdx = gitChanges.findIndex(c => c.path === remoteEntryTex);
+                if (texIdx >= 0) gitChanges[texIdx].content = null;
+                else gitChanges.push({ path: remoteEntryTex, content: null, isBinary: false });
+              };
+
+              if (kind === "local_edit_remote_delete") {
+                if (action === "keep_remote") {
+                  // Accept remote delete — drop local upserts and remove from index.
+                  delete merged.entries[entryId];
+                  removeFromGitChanges();
+                  stageDeleteInGitChanges();
+                  await removeStaged(dbName, entryJsonPath);
+                  await removeStaged(dbName, entryTexPath);
+                  await stageChange(dbName, { path: entryJsonPath, operation: "delete", label: "Accept remote delete", stagedAt: new Date().toISOString() });
+                  await stageChange(dbName, { path: entryTexPath, operation: "delete", label: "Accept remote delete", stagedAt: new Date().toISOString() });
+                  this.lastSavedContents.delete(entryJsonPath);
+                  this.lastSavedContents.delete(entryTexPath);
+                } else if (action === "duplicate") {
+                  // Save local work as a new entry; accept remote delete of the original.
+                  const localMeta = localMetadata.entries[entryId] || this.metadata.entries[entryId];
+                  const newId = await this.entryManager.duplicateEntry(entryId, {
+                    title: `${localMeta?.title || "Entry"} (Conflicted Copy)`,
+                    authors: localMeta?.authors,
+                    phase: localMeta?.phase ?? null,
+                    date: localMeta?.date,
+                  });
+                  delete merged.entries[entryId];
+                  const duplicatedMeta = this.metadata.entries[newId];
+                  if (duplicatedMeta) {
+                    merged.entries[newId] = duplicatedMeta;
+                    const newJsonPath = this.getFullPath(`${ENTRIES_DIR}/${newId}.json`);
+                    const newTexPath = this.getFullPath(`${LATEX_DIR}/${newId}.tex`);
+                    const newJsonContent = await this.getFileContent(`${ENTRIES_DIR}/${newId}.json`);
+                    const newTexContent = await this.getFileContent(`${LATEX_DIR}/${newId}.tex`);
+                    if (newJsonContent) gitChanges.push({ path: newJsonPath, content: newJsonContent, isBinary: false });
+                    if (newTexContent) gitChanges.push({ path: newTexPath, content: newTexContent, isBinary: false });
+                  }
+                  removeFromGitChanges();
+                  stageDeleteInGitChanges();
+                  await removeStaged(dbName, entryJsonPath);
+                  await removeStaged(dbName, entryTexPath);
+                  await stageChange(dbName, { path: entryJsonPath, operation: "delete", label: "Accept remote delete", stagedAt: new Date().toISOString() });
+                  await stageChange(dbName, { path: entryTexPath, operation: "delete", label: "Accept remote delete", stagedAt: new Date().toISOString() });
+                }
+                // keep_local: leave local entry in merged + push upserts (default)
+              } else if (kind === "local_delete_remote_edit") {
+                if (action === "keep_local") {
+                  // Confirm local delete — drop remote edits.
+                  delete merged.entries[entryId];
+                  stageDeleteInGitChanges();
+                  await stageChange(dbName, { path: entryJsonPath, operation: "delete", label: "Delete entry", stagedAt: new Date().toISOString() });
+                  await stageChange(dbName, { path: entryTexPath, operation: "delete", label: "Delete LaTeX", stagedAt: new Date().toISOString() });
+                } else {
+                  // keep_remote (or duplicate): undo local delete, keep remote content.
+                  merged.entries[entryId] = remoteMetadata.entries[entryId];
+                  removeFromGitChanges();
+                  await removeStaged(dbName, entryJsonPath);
+                  await removeStaged(dbName, entryTexPath);
+                  this.lastSavedContents.delete(entryJsonPath);
+                  this.lastSavedContents.delete(entryTexPath);
+                }
+              } else if (action === "keep_remote") {
+                // Discard local edits for this entry
+                merged.entries[entryId] = remoteMetadata.entries[entryId];
+                removeFromGitChanges();
                 await removeStaged(dbName, entryJsonPath);
                 await removeStaged(dbName, entryTexPath);
                 this.lastSavedContents.delete(entryJsonPath);
                 this.lastSavedContents.delete(entryTexPath);
               } else if (action === "duplicate") {
                 // Keep remote version at entryId, duplicate local version as a new entry with copy title
-                const localMeta = this.metadata.entries[entryId];
+                const localMeta = localMetadata.entries[entryId] || this.metadata.entries[entryId];
                 const newId = await this.entryManager.duplicateEntry(entryId, {
                   title: `${localMeta?.title || "Entry"} (Conflicted Copy)`,
                   authors: localMeta?.authors,
@@ -467,15 +672,9 @@ class WorkspaceStore implements IWorkspaceStore {
                 }
 
                 // Remove original entry from staged since remote has it
-                const origJsonPath = this.getFullPath(`${ENTRIES_DIR}/${entryId}.json`);
-                const origTexPath = this.getFullPath(`${LATEX_DIR}/${entryId}.tex`);
-                const jIdx = gitChanges.findIndex(c => c.path === origJsonPath);
-                if (jIdx >= 0) gitChanges.splice(jIdx, 1);
-                const tIdx = gitChanges.findIndex(c => c.path === origTexPath);
-                if (tIdx >= 0) gitChanges.splice(tIdx, 1);
-
-                await removeStaged(dbName, `${ENTRIES_DIR}/${entryId}.json`);
-                await removeStaged(dbName, `${LATEX_DIR}/${entryId}.tex`);
+                removeFromGitChanges();
+                await removeStaged(dbName, entryJsonPath);
+                await removeStaged(dbName, entryTexPath);
               }
               // "keep_local" keeps merged.entries[entryId] = local version (default in merged)
             }
@@ -497,9 +696,25 @@ class WorkspaceStore implements IWorkspaceStore {
           }
 
           this.metadata = merged;
+
+          // Drop stale orphan asset deletes that would remove files still referenced
+          // by the merged (or remote) index — e.g. B cleaned up a shared hash while A still uses it.
+          const pendingAssetDeletes = all
+            .filter((p) => p.operation === "delete" && isAssetPath(p.path))
+            .map((p) => p.path);
+          if (pendingAssetDeletes.length > 0) {
+            const { drop } = assetDeletesSafeToPush(pendingAssetDeletes, merged, remoteMetadata);
+            for (const path of drop) {
+              const full = this.getFullPath(path);
+              const idx = gitChanges.findIndex((c) => c.path === full && c.content === null);
+              if (idx >= 0) gitChanges.splice(idx, 1);
+              await removeStaged(dbName, path);
+            }
+          }
+
           const mergedIndexStr = serializeNotebookMetadata(merged);
           const remoteNormalizedStr = serializeNotebookMetadata(remoteMetadata);
-          const isMetadataModified = !notebookIndexEqualIgnoringUpdatedAt(mergedIndexStr, remoteNormalizedStr);
+          const isMetadataModified = mergedIndexStr !== remoteNormalizedStr;
           
           const indexChangeIdx = gitChanges.findIndex(c => c.path === remoteIndexPath);
           if (isMetadataModified) {
@@ -616,7 +831,16 @@ class WorkspaceStore implements IWorkspaceStore {
         ? `${customMessage} (Updated ${gitChanges.length} ${gitChanges.length === 1 ? "file" : "files"})`
         : `Update notebook: ${gitChanges.length} ${gitChanges.length === 1 ? "file" : "files"}`;
 
-      await commitChanges(config, gitChanges, finalMsg);
+      try {
+        await commitChanges(config, gitChanges, finalMsg);
+      } catch (pushErr: unknown) {
+        const status = (pushErr as { status?: number })?.status;
+        const msg = status === 422 || status === 409
+          ? "GitHub moved ahead while syncing. Your changes are still staged — sync again to re-merge."
+          : ((pushErr as Error)?.message || "Failed to push changes to GitHub.");
+        events.emit(EventNames.SHOW_NOTIFICATION, { message: msg, type: "error" });
+        throw pushErr;
+      }
       await clearAllPending(dbName);
       await clearBaseMetadata(dbName);
       await this.reloadWorkspace();

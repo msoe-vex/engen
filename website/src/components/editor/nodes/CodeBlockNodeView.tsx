@@ -8,6 +8,7 @@ import { NodeViewInput } from "./NodeViewInput";
 import { resourceMetaErrors } from "./resourceValidation";
 import GenerateButton from "../ui/GenerateButton";
 import { generateResourceCaption, generateResourceTitle } from "@/lib/genai";
+import { patchNodeViewAttrs } from "./patchNodeViewAttrs";
 
 export const LANGUAGES: Record<string, string> = {
   plaintext: "Plain Text",
@@ -115,8 +116,9 @@ export function CodeBlockNodeView({ node, updateAttributes, deleteNode, editor, 
             </div>
             <NodeViewInput
               editor={editor}
+              getPos={getPos}
+              attr="title"
               value={node.attrs.title || ""}
-              onUpdate={(title) => updateAttributes({ title })}
               placeholder="Code Snippet Title..."
               className="flex-1 bg-transparent border-none outline-none text-[12px] font-bold tracking-wider text-nb-on-surface-variant placeholder:text-nb-on-surface-variant/30"
             />
@@ -132,7 +134,7 @@ export function CodeBlockNodeView({ node, updateAttributes, deleteNode, editor, 
                 language: node.attrs.language,
                 text: node.textContent,
               })}
-              onResult={(title) => updateAttributes({ title })}
+              onResult={(title) => patchNodeViewAttrs(editor, getPos, { title })}
             />
             <div className="relative shrink-0 ml-auto">
               <button
@@ -208,8 +210,9 @@ export function CodeBlockNodeView({ node, updateAttributes, deleteNode, editor, 
         <div contentEditable={false} className="bg-nb-surface-low/30 border-t border-nb-outline-variant/10 px-4 py-2 flex items-start justify-center gap-2 group/caption">
           <NodeViewInput
             editor={editor}
+            getPos={getPos}
+            attr="caption"
             value={node.attrs.caption || ""}
-            onUpdate={(caption) => updateAttributes({ caption })}
             placeholder="What does this code do?"
             multiline
             className="w-full bg-transparent border-none outline-none text-center text-xs font-medium italic text-nb-on-surface/50 group-hover/caption:text-nb-on-surface focus:text-nb-on-surface focus:opacity-100 transition-all leading-relaxed"
@@ -223,7 +226,7 @@ export function CodeBlockNodeView({ node, updateAttributes, deleteNode, editor, 
               language: node.attrs.language,
               text: node.textContent,
             })}
-            onResult={(caption) => updateAttributes({ caption })}
+            onResult={(caption) => patchNodeViewAttrs(editor, getPos, { caption })}
           />
         </div>
       </div>
@@ -259,7 +262,12 @@ export const CustomCodeBlock = CodeBlock.extend({
   },
   draggable: true,
   addNodeView() {
-    return ReactNodeViewRenderer(CodeBlockNodeView);
+    return ReactNodeViewRenderer(CodeBlockNodeView, {
+      stopEvent: ({ event }) => {
+        const target = event.target as HTMLElement;
+        return !!(target?.closest("input") || target?.closest("textarea") || target?.closest("select"));
+      },
+    });
   },
   addKeyboardShortcuts() {
     return {

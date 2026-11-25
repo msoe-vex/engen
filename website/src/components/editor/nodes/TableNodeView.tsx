@@ -1,5 +1,8 @@
 import React, { useState } from "react";
 import { NodeViewWrapper, NodeViewContent, ReactNodeViewRenderer, NodeViewProps } from "@tiptap/react";
+import type { Editor } from "@tiptap/core";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { TextSelection } from "@tiptap/pm/state";
 import { Table } from "@tiptap/extension-table";
 import { TableCell } from "@tiptap/extension-table-cell";
 import { TableHeader } from "@tiptap/extension-table-header";
@@ -19,17 +22,23 @@ export function TableNodeView({ node, updateAttributes, deleteNode, editor, sele
     const check = () => {
       try {
         const pos = getPos();
-        if (typeof pos !== 'number' || pos < 0) return;
+        if (typeof pos !== "number" || pos < 0) return;
         const { from, to } = editor.state.selection;
         setIsCursorInside(from >= pos && to <= pos + node.nodeSize);
-      } catch { }
+      } catch { /* ignore */ }
     };
     check();
-    editor.on('selectionUpdate', check);
-    return () => { editor.off('selectionUpdate', check); };
+    editor.on("selectionUpdate", check);
+    return () => { editor.off("selectionUpdate", check); };
   }, [editor, getPos, node.nodeSize]);
 
   const active = selected || isCursorInside || isHoveringToolbar;
+
+  const handleTranspose = () => {
+    const pos = getPos();
+    if (typeof pos !== "number" || pos < 0) return;
+    transposeTableNode(editor, pos);
+  };
 
   return (
     <NodeViewWrapper
@@ -54,7 +63,7 @@ export function TableNodeView({ node, updateAttributes, deleteNode, editor, sele
         </button>
       </div>
 
-      <div className={`rounded-xl border border-nb-outline-variant/30 overflow-hidden bg-nb-surface transition-all duration-300 ${active ? 'ring-2 ring-nb-primary/50' : ''}`}>
+      <div className={`rounded-xl border border-nb-outline-variant/30 overflow-hidden bg-nb-surface transition-all duration-300 ${active ? "ring-2 ring-nb-primary/50" : ""}`}>
         <div
           contentEditable={false}
           onMouseEnter={() => setIsHoveringToolbar(true)}
@@ -65,8 +74,9 @@ export function TableNodeView({ node, updateAttributes, deleteNode, editor, sele
             <TableIcon size={12} className="text-nb-primary" />
             <NodeViewInput
               editor={editor}
+              getPos={getPos}
+              attr="title"
               value={node.attrs.title || ""}
-              onUpdate={(title) => updateAttributes({ title })}
               placeholder="Table Title..."
               className="bg-transparent border-none outline-none text-[12px] font-bold tracking-wider text-nb-on-surface-variant placeholder:text-nb-on-surface-variant/30 w-48"
             />
@@ -81,11 +91,11 @@ export function TableNodeView({ node, updateAttributes, deleteNode, editor, sele
                 caption: node.attrs.caption,
                 text: node.textContent,
               })}
-              onResult={(title) => updateAttributes({ title })}
+              onResult={(title) => patchNodeViewAttrs(editor, getPos, { title })}
             />
           </div>
 
-          <div className={`flex items-center gap-0.5 shrink-0 transition-opacity duration-200 ${isCursorInside || isHoveringToolbar ? 'opacity-100' : 'opacity-30 pointer-events-none'}`}>
+          <div className={`flex items-center gap-0.5 shrink-0 transition-opacity duration-200 ${isCursorInside || isHoveringToolbar ? "opacity-100" : "opacity-30 pointer-events-none"}`}>
             <div className="flex items-center bg-nb-surface border border-nb-outline-variant/30 p-0.5 rounded-lg shadow-sm">
               <div className="px-1.5 text-nb-on-surface-variant/40 border-r border-nb-outline-variant/10 mr-0.5">
                 <Rows3 size={12} />
@@ -147,18 +157,31 @@ export function TableNodeView({ node, updateAttributes, deleteNode, editor, sele
                 <Trash2 size={12} />
               </button>
             </div>
+
+            <div className="flex items-center bg-nb-surface border border-nb-outline-variant/30 p-0.5 ml-1.5 rounded-lg shadow-sm">
+              <button
+                onMouseDown={(e) => { e.preventDefault(); }}
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleTranspose(); }}
+                className="flex items-center gap-1.5 px-2 py-1.5 hover:bg-nb-surface-high rounded transition-colors text-nb-on-surface-variant hover:text-nb-primary"
+                title="Transpose Table (swap rows and columns)"
+              >
+                <FlipHorizontal2 size={12} />
+                <span className="text-[10px] font-bold tracking-wider uppercase">Transpose</span>
+              </button>
+            </div>
           </div>
         </div>
 
         <div className="w-full overflow-x-auto custom-scrollbar">
-          <NodeViewContent as={"table" as unknown as "div"} className="table-auto mx-auto" style={{ margin: '0 auto' }} />
+          <NodeViewContent as={"table" as unknown as "div"} className="table-auto mx-auto" style={{ margin: "0 auto" }} />
         </div>
 
         <div contentEditable={false} className="bg-nb-surface-low/30 border-t border-nb-outline-variant/10 px-4 py-2 flex items-start justify-center gap-2 group/caption">
           <NodeViewInput
             editor={editor}
+            getPos={getPos}
+            attr="caption"
             value={node.attrs.caption || ""}
-            onUpdate={(caption) => updateAttributes({ caption })}
             placeholder="Describe this table..."
             multiline
             className="w-full bg-transparent border-none outline-none text-center text-xs font-medium italic text-nb-on-surface/50 group-hover/caption:text-nb-on-surface focus:text-nb-on-surface focus:opacity-100 transition-all leading-relaxed"
@@ -171,7 +194,7 @@ export function TableNodeView({ node, updateAttributes, deleteNode, editor, sele
               caption: node.attrs.caption,
               text: node.textContent,
             })}
-            onResult={(caption) => updateAttributes({ caption })}
+            onResult={(caption) => patchNodeViewAttrs(editor, getPos, { caption })}
           />
         </div>
       </div>
@@ -186,8 +209,8 @@ export const TableWithCaption = Table.extend({
       id: {
         default: null,
         keepOnSplit: true,
-        parseHTML: element => element.getAttribute('data-id'),
-        renderHTML: attributes => (attributes.id ? { 'data-id': attributes.id } : {}),
+        parseHTML: (element) => element.getAttribute("data-id"),
+        renderHTML: (attributes) => (attributes.id ? { "data-id": attributes.id } : {}),
       },
       caption: { default: "" },
       title: { default: "" },
@@ -195,14 +218,19 @@ export const TableWithCaption = Table.extend({
   },
   draggable: true,
   addNodeView() {
-    return ReactNodeViewRenderer(TableNodeView);
+    return ReactNodeViewRenderer(TableNodeView, {
+      stopEvent: ({ event }) => {
+        const target = event.target as HTMLElement;
+        return !!(target?.closest("input") || target?.closest("textarea"));
+      },
+    });
   },
 });
 
 export const RestrictedTableCell = TableCell.extend({
-  content: 'paragraph+',
+  content: "paragraph+",
 });
 
 export const RestrictedTableHeader = TableHeader.extend({
-  content: 'paragraph+',
+  content: "paragraph+",
 });

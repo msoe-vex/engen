@@ -1,7 +1,7 @@
 import { validateEntryMetadataFields } from "@engineering-notebook/shared";
 import { ASSETS_DIR, ASSETS_COMPRESSED_DIR, ASSETS_ORIGINAL_DIR, TYPE_LABELS, NOTEBOOK_VERSION } from "@/lib/constants";
 import { generateUUID } from "@/lib/utils";
-import { normalizeNotebookMetadata, mergeRecordById, parseAuthors, formatAuthors } from "./notebookSchema";
+import { normalizeNotebookMetadata, mergeRecordById, parseAuthors, formatAuthors, entriesEqualForMerge } from "./notebookSchema";
 
 export { NOTEBOOK_VERSION };
 export {
@@ -10,6 +10,9 @@ export {
   serializeNotebookMetadataIgnoringUpdatedAt,
   notebookIndexEqualIgnoringUpdatedAt,
   entryMetadataEqualIgnoringUpdatedAt,
+  resourcesEqual,
+  entriesEqualForMerge,
+  entryHeaderMetadataEqual,
   sortedEntries,
   sortedMembers,
   sortedPhases,
@@ -18,6 +21,7 @@ export {
   reorderEntries,
   moveEntryOnCalendar,
   placeCreatedEntry,
+  redateEntry,
   reorderTemplateSequence,
   isNotebookValid,
   mergeRecordById,
@@ -241,20 +245,21 @@ export const EMPTY_METADATA: NotebookMetadata = {
 
 type TipTapDoc = TipTapNode;
 
-/** Walk every node in a ProseMirror doc and collect image filePaths. */
+/** Walk every node in a ProseMirror doc and collect unique image asset paths. */
 export function extractImagePaths(doc: TipTapDoc): string[] {
   const paths: string[] = [];
+  const seen = new Set<string>();
+  function add(path: string | undefined) {
+    if (!path || !path.startsWith(`${ASSETS_DIR}/`) || seen.has(path)) return;
+    seen.add(path);
+    paths.push(path);
+  }
   function walk(node: TipTapNode | undefined) {
     if (!node) return;
     if (node.type === "image") {
       const compressedPath = (node.attrs?.filePath as string) || (node.attrs?.src as string);
-      const originalPath = node.attrs?.originalFilePath as string | undefined;
-      if (compressedPath && compressedPath.startsWith(`${ASSETS_DIR}/`)) {
-        paths.push(compressedPath);
-      }
-      if (originalPath && originalPath.startsWith(`${ASSETS_DIR}/`) && originalPath !== compressedPath) {
-        paths.push(originalPath);
-      }
+      add(compressedPath);
+      add(node.attrs?.originalFilePath as string | undefined);
     }
     (node.content ?? []).forEach(walk);
   }
@@ -406,12 +411,11 @@ export function removeImageFromDoc(doc: TipTapDoc, deletedPath: string): TipTapD
  * newAssets is a list of { path, base64 } to be saved.
  */
 export async function dehydrateAssets(
-  doc: TipTapDoc,
-  knownAssetPaths: string[] = []
+  doc: TipTapDoc
 ): Promise<{ cleanDoc: TipTapDoc; newAssets: { path: string; base64: string }[] }> {
   const { hashContent, getExtensionFromDataUrl } = await import("@/lib/utils");
   const assets: { path: string; base64: string }[] = [];
-  const knownPaths = new Set(knownAssetPaths);
+  const seen = new Set<string>();
 
   async function walk(node: TipTapNode): Promise<TipTapNode> {
     if (!node) return node;
@@ -431,12 +435,17 @@ export async function dehydrateAssets(
         const defaultOriginalPath = originalHash ? `${ASSETS_ORIGINAL_DIR}/${originalHash}.${originalExt}` : compressedPath;
         const originalPath = attrs.originalFilePath || defaultOriginalPath;
 
-        // Only skip when this entry already knows the asset path and the content hash matches.
-        const compressedUnchanged = !!(compressedBase64 && compressedHash && compressedPath && knownPaths.has(compressedPath) && compressedPath.includes(compressedHash));
-        const originalUnchanged = !!(originalBase64 && originalHash && originalPath && knownPaths.has(originalPath) && originalPath.includes(originalHash));
-
-        if (originalBase64 && originalPath && !originalUnchanged) assets.push({ path: originalPath, base64: originalBase64 });
-        if (compressedBase64 && compressedPath && !compressedUnchanged) assets.push({ path: compressedPath, base64: compressedBase64 });
+        // Always re-emit assets when the editor still has data URLs. Skipping "known"
+        // paths caused deleted assets to stay deleted when the same image was re-added
+        // (identical hash path) and when a pending delete was still staged.
+        if (originalBase64 && originalPath && !seen.has(originalPath)) {
+          assets.push({ path: originalPath, base64: originalBase64 });
+          seen.add(originalPath);
+        }
+        if (compressedBase64 && compressedPath && !seen.has(compressedPath)) {
+          assets.push({ path: compressedPath, base64: compressedBase64 });
+          seen.add(compressedPath);
+        }
 
         const nextAttrs = { ...node.attrs } as Record<string, unknown>;
         if (compressedPath) {
@@ -1025,7 +1034,20 @@ export function mergeTeamMetadata(
   if (!local) return remote;
   if (!remote) return local;
   if (!base) {
-    return { ...remote, ...local, members: mergeRecordById(undefined, local.members, remote.members) };
+    // No base snapshot: prefer remote for shared fields/assets so a stale local
+    // notebook.json cannot wipe teammate logo/member image updates. Local-only
+    // members still survive (swap keeps remote on content collisions).
+    return {
+      teamName: local.teamName || remote.teamName || "",
+      teamNumber: local.teamNumber || remote.teamNumber || "",
+      organization: local.organization || remote.organization || "",
+      startDate: local.startDate ?? remote.startDate,
+      endDate: local.endDate ?? remote.endDate,
+      autoCalculateDates: local.autoCalculateDates ?? remote.autoCalculateDates ?? true,
+      logo: remote.logo ?? local.logo,
+      logoOriginal: remote.logoOriginal ?? local.logoOriginal,
+      members: mergeRecordById(undefined, remote.members, local.members),
+    };
   }
 
   const teamName = JSON.stringify(local.teamName) !== JSON.stringify(base.teamName) ? local.teamName : remote.teamName;
@@ -1081,7 +1103,8 @@ export function mergeNotebookMetadata(
     base?.entries,
     local.entries,
     remote.entries,
-    collidingEntryIds
+    collidingEntryIds,
+    entriesEqualForMerge
   );
 
   // Filter out ghost entries if validEntryIds is provided

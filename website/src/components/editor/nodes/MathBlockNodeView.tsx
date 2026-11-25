@@ -10,6 +10,7 @@ import { NodeViewInput } from "./NodeViewInput";
 import { resourceMetaErrors } from "./resourceValidation";
 import GenerateButton from "../ui/GenerateButton";
 import { generateResourceCaption, generateResourceTitle } from "@/lib/genai";
+import { patchNodeViewAttrs } from "./patchNodeViewAttrs";
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
@@ -21,7 +22,9 @@ export function MathBlockNodeView({ node, updateAttributes, deleteNode, editor, 
   const [isEditing, setIsEditing] = useState(selected);
   const [isHoveringToolbar, setIsHoveringToolbar] = useState(false);
   const [dragEnabled, setDragEnabled] = useState(false);
+  const [latexDraft, setLatexDraft] = useState(node.attrs.latex || "");
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const lastLatexEmittedRef = useRef(node.attrs.latex || "");
   const renderRef = useRef<HTMLDivElement>(null);
 
   // Automatically enter edit mode if the node is selected AND empty (e.g. just created)
@@ -37,13 +40,22 @@ export function MathBlockNodeView({ node, updateAttributes, deleteNode, editor, 
     }
   }, [selected, node.attrs.latex]);
 
+  // Sync latex from the node only for external updates (undo / generate), not our own emits
+  useEffect(() => {
+    const incoming = node.attrs.latex || "";
+    if (incoming !== lastLatexEmittedRef.current) {
+      lastLatexEmittedRef.current = incoming;
+      setLatexDraft(incoming);
+    }
+  }, [node.attrs.latex]);
+
   // Handle focus when entering edit mode
   React.useLayoutEffect(() => {
     if (isEditing && inputRef.current) {
       const frameId = requestAnimationFrame(() => {
         if (inputRef.current && document.activeElement !== inputRef.current) {
           inputRef.current.focus();
-          // Move cursor to end
+          // Move cursor to end only when first focusing the field
           inputRef.current.selectionStart = inputRef.current.value.length;
           inputRef.current.selectionEnd = inputRef.current.value.length;
 
@@ -112,8 +124,9 @@ export function MathBlockNodeView({ node, updateAttributes, deleteNode, editor, 
             <Sigma size={12} className="text-nb-primary" />
             <NodeViewInput
               editor={editor}
+              getPos={getPos}
+              attr="title"
               value={node.attrs.title || ""}
-              onUpdate={(title) => updateAttributes({ title })}
               placeholder="Equation Title..."
               className="flex-1 bg-transparent border-none outline-none text-[12px] font-bold tracking-wider text-nb-on-surface-variant placeholder:text-nb-on-surface-variant/30"
             />
@@ -128,7 +141,7 @@ export function MathBlockNodeView({ node, updateAttributes, deleteNode, editor, 
                 caption: node.attrs.caption,
                 text: node.attrs.latex,
               })}
-              onResult={(title) => updateAttributes({ title })}
+              onResult={(title) => patchNodeViewAttrs(editor, getPos, { title })}
             />
           </div>
 
@@ -152,12 +165,20 @@ export function MathBlockNodeView({ node, updateAttributes, deleteNode, editor, 
           >
             <textarea
               ref={inputRef}
-              value={node.attrs.latex}
+              value={latexDraft}
               onChange={(e) => {
-                updateAttributes({ latex: e.target.value });
-                // Auto-resize
+                const next = e.target.value;
+                lastLatexEmittedRef.current = next;
+                setLatexDraft(next);
+                updateAttributes({ latex: next });
+                // Auto-resize without clobbering the caret
+                const start = e.target.selectionStart;
+                const end = e.target.selectionEnd;
                 e.target.style.height = 'auto';
                 e.target.style.height = e.target.scrollHeight + 'px';
+                if (start != null && end != null) {
+                  e.target.setSelectionRange(start, end);
+                }
               }}
               onBlur={() => setIsEditing(false)}
               placeholder="Type LaTeX here (e.g. ax^2 + bx + c = 0)..."
@@ -178,7 +199,7 @@ export function MathBlockNodeView({ node, updateAttributes, deleteNode, editor, 
                   setIsEditing(false);
                   editor.commands.focus();
                 }
-                if (e.key === 'Backspace' && node.attrs.latex === "") {
+                if (e.key === 'Backspace' && latexDraft === "") {
                   e.preventDefault();
                   deleteNode();
                   editor.commands.focus();
@@ -211,8 +232,9 @@ export function MathBlockNodeView({ node, updateAttributes, deleteNode, editor, 
         <div contentEditable={false} className="bg-nb-surface-low/30 border-t border-nb-outline-variant/10 px-4 py-2 flex items-start justify-center gap-2 group/caption">
           <NodeViewInput
             editor={editor}
+            getPos={getPos}
+            attr="caption"
             value={node.attrs.caption || ""}
-            onUpdate={(caption) => updateAttributes({ caption })}
             placeholder="Add a caption to this equation..."
             multiline
             className="w-full bg-transparent border-none outline-none text-center text-xs font-medium italic text-nb-on-surface/50 group-hover/caption:text-nb-on-surface focus:text-nb-on-surface focus:opacity-100 transition-all leading-relaxed"
@@ -225,7 +247,7 @@ export function MathBlockNodeView({ node, updateAttributes, deleteNode, editor, 
               caption: node.attrs.caption,
               text: node.attrs.latex,
             })}
-            onResult={(caption) => updateAttributes({ caption })}
+            onResult={(caption) => patchNodeViewAttrs(editor, getPos, { caption })}
           />
         </div>
       </div>

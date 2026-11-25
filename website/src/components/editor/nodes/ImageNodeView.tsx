@@ -199,8 +199,9 @@ export const ImageNodeView = ({ node, selected, updateAttributes, deleteNode, db
             <ImageIcon size={12} className="text-nb-primary shrink-0" />
             <NodeViewInput
               editor={editor}
+              getPos={getPos}
+              attr="title"
               value={node.attrs.title || ""}
-              onUpdate={(title) => updateAttributes({ title })}
               placeholder="Give this image a title..."
               className="flex-1 bg-transparent border-none outline-none text-[12px] font-bold tracking-wider text-nb-on-surface-variant placeholder:text-nb-on-surface-variant/30"
             />
@@ -209,7 +210,7 @@ export const ImageNodeView = ({ node, selected, updateAttributes, deleteNode, db
               label="Generate title"
               disabled={!resolvedSrc}
               run={() => generateResourceTitle(resource())}
-              onResult={(title) => updateAttributes({ title })}
+              onResult={(title) => patchNodeViewAttrs(editor, getPos, { title })}
             />
           </div>
           <div className="flex items-center gap-2">
@@ -245,6 +246,14 @@ export const ImageNodeView = ({ node, selected, updateAttributes, deleteNode, db
                 updateAttributes({ src: compressed.dataUrl, originalSrc: dataUrl, filePath: newPath, originalFilePath: originalPath });
                 setResolvedSrc(compressed.dataUrl);
                 setIsLoading(false);
+
+                // Persist immediately so replacing with the same image after a delete
+                // overwrites any pending asset delete (hash path unchanged).
+                store.enqueue(async () => {
+                  await store.persistFile(originalPath, dataUrl.split(",")[1] || "", `Original Asset: ${originalPath}`, true);
+                  await store.persistFile(newPath, compressed.base64, `Compressed Asset: ${newPath}`, true);
+                });
+
                 events.emit(EventNames.SHOW_NOTIFICATION, { message: 'Image replaced', type: 'success' });
               } catch (err) {
                 console.error('Replace image failed', err);
@@ -296,8 +305,9 @@ export const ImageNodeView = ({ node, selected, updateAttributes, deleteNode, db
         <div contentEditable={false} className="bg-nb-surface-low/30 border-t border-nb-outline-variant/10 px-4 py-2 flex items-start justify-center gap-2 group/caption">
           <NodeViewInput
             editor={editor}
+            getPos={getPos}
+            attr="caption"
             value={node.attrs.caption || ""}
-            onUpdate={(caption) => updateAttributes({ caption })}
             placeholder="Add figure description..."
             multiline
             className="w-full bg-transparent border-none outline-none text-center text-xs font-medium italic text-nb-on-surface/50 group-hover/caption:text-nb-on-surface focus:text-nb-on-surface focus:opacity-100 transition-all leading-relaxed"
@@ -307,7 +317,7 @@ export const ImageNodeView = ({ node, selected, updateAttributes, deleteNode, db
             // Vision captions need a data URL; signed cloud URLs skip the image part.
             disabled={!resolvedSrc}
             run={() => generateResourceCaption(resource())}
-            onResult={(caption) => updateAttributes({ caption })}
+            onResult={(caption) => patchNodeViewAttrs(editor, getPos, { caption })}
           />
         </div>
       </div>
@@ -341,6 +351,16 @@ export const ImageWithCaption = TiptapImage.extend<ImageOptions & { dbName: stri
   },
   draggable: true,
   addNodeView() {
-    return ReactNodeViewRenderer((props) => <ImageNodeView {...props as NodeViewProps} dbName={(this.options as unknown as { dbName: string }).dbName} />);
+    const dbName = (this.options as unknown as { dbName: string }).dbName;
+    const View = (props: NodeViewProps) => (
+      <ImageNodeView {...props} dbName={dbName} />
+    );
+    View.displayName = "ImageWithCaptionView";
+    return ReactNodeViewRenderer(View, {
+      stopEvent: ({ event }) => {
+        const target = event.target as HTMLElement;
+        return !!(target?.closest("input") || target?.closest("textarea"));
+      },
+    });
   },
 });

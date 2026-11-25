@@ -1,7 +1,83 @@
-import { ENTRIES_DIR, LATEX_DIR } from "@/lib/constants";
+import { ASSETS_DIR, ENTRIES_DIR, LATEX_DIR } from "@/lib/constants";
 import type { NotebookMetadata } from "./metadata";
 import { mergeNotebookMetadata } from "./metadata";
-import { normalizeNotebookMetadata, serializeNotebookMetadata } from "./notebookSchema";
+import {
+  entriesEqualForMerge,
+  entryHeaderMetadataEqual,
+  normalizeNotebookMetadata,
+  serializeNotebookMetadata,
+} from "./notebookSchema";
+
+/** True when path is a notebook asset file (compressed/original images, etc.). */
+export function isAssetPath(path: string): boolean {
+  return path.startsWith(`${ASSETS_DIR}/`) || /(^|\/)assets\//.test(path);
+}
+
+/**
+ * 3-way merge of entry asset path lists.
+ * Keeps adds from either side; drops only when that side removed vs base.
+ * Critical when local index is stale (never saw a remote add) so missing ≠ delete.
+ */
+export function mergeAssetPaths(
+  base: string[] | undefined,
+  local: string[] | undefined,
+  remote: string[] | undefined
+): string[] {
+  const b = new Set(base || []);
+  const l = new Set(local || []);
+  const r = new Set(remote || []);
+  const out: string[] = [];
+  for (const path of new Set([...b, ...l, ...r])) {
+    const inB = b.has(path);
+    const inL = l.has(path);
+    const inR = r.has(path);
+    if (inL && inR) {
+      out.push(path);
+      continue;
+    }
+    if (!inB && (inL || inR)) {
+      out.push(path);
+      continue;
+    }
+    // in base: drop if either side removed it
+    if (inB && inL && !inR) continue;
+    if (inB && !inL && inR) continue;
+    if (inB && !inL && !inR) continue;
+  }
+  return out.sort();
+}
+
+/**
+ * Pending asset deletes that would remove files still referenced after merge
+ * (or still referenced on remote) must not be pushed — classic stale-orphan hazard
+ * when User B cleaned up locally while User A still uses the same hashed asset.
+ */
+export function assetDeletesSafeToPush(
+  deletePaths: string[],
+  merged: NotebookMetadata,
+  remote?: NotebookMetadata | null
+): { keep: string[]; drop: string[] } {
+  const keep: string[] = [];
+  const drop: string[] = [];
+  const protectedPaths = new Set<string>([
+    ...Object.keys(merged.assetRefs || {}),
+    ...Object.keys(remote?.assetRefs || {}),
+  ]);
+  for (const path of deletePaths) {
+    if (!isAssetPath(path)) {
+      keep.push(path);
+      continue;
+    }
+    if (protectedPaths.has(path)) drop.push(path);
+    else keep.push(path);
+  }
+  return { keep, drop };
+}
+
+export type EntryConflictKind =
+  | "both_edited"
+  | "local_edit_remote_delete"
+  | "local_delete_remote_edit";
 
 export function cloneNotebookMetadata(metadata: NotebookMetadata): NotebookMetadata {
   return JSON.parse(serializeNotebookMetadata(metadata)) as NotebookMetadata;
@@ -22,9 +98,10 @@ export function entryArtifactPaths(id: string): { jsonPath: string; texPath: str
 export function collectEntryFileIds(
   filePaths: string[],
   pending: { path: string; operation: string }[]
-): { fileIds: Set<string>; pendingUpsertIds: Set<string> } {
+): { fileIds: Set<string>; pendingUpsertIds: Set<string>; pendingDeleteIds: Set<string> } {
   const fileIds = new Set<string>();
   const pendingUpsertIds = new Set<string>();
+  const pendingDeleteIds = new Set<string>();
   for (const path of filePaths) {
     const id = jsonEntryIdFromPath(path);
     if (id) fileIds.add(id);
@@ -35,42 +112,309 @@ export function collectEntryFileIds(
     if (change.operation === "upsert") {
       fileIds.add(id);
       pendingUpsertIds.add(id);
+      pendingDeleteIds.delete(id);
     } else if (change.operation === "delete") {
       fileIds.delete(id);
       pendingUpsertIds.delete(id);
+      pendingDeleteIds.add(id);
     }
   }
-  return { fileIds, pendingUpsertIds };
+  return { fileIds, pendingUpsertIds, pendingDeleteIds };
+}
+
+/** Entries with real notebook.json header edits (date/title/etc.) without a staged entry JSON upsert. */
+/** Prefer in-memory entries newer than a staged notebook.json snapshot (e.g. date edit before auto-save). */
+export function mergeInMemoryIndexAheadOfStaged(
+  staged: NotebookMetadata,
+  inMemory: NotebookMetadata
+): NotebookMetadata {
+  const entries = { ...staged.entries };
+  for (const [id, mem] of Object.entries(inMemory.entries || {})) {
+    const snap = entries[id];
+    if (!snap) {
+      entries[id] = mem;
+      continue;
+    }
+    if ((mem.updatedAt || "") > (snap.updatedAt || "")) {
+      entries[id] = mem;
+    }
+  }
+  return normalizeNotebookMetadata({
+    ...staged,
+    entries,
+    ...(inMemory.team ? { team: inMemory.team } : {}),
+    ...(inMemory.phases ? { phases: inMemory.phases } : {}),
+  });
+}
+
+/**
+ * Local notebook.json header edits with no matching remote change (e.g. date-only).
+ * Stale index pollution where remote also moved still hard-prefers remote.
+ */
+export function collectLocalHeaderOnlyEditIds(
+  base: NotebookMetadata | null,
+  local: NotebookMetadata,
+  remote: NotebookMetadata
+): Set<string> {
+  const ids = new Set<string>();
+  if (!base?.entries) return ids;
+  for (const id of Object.keys(local.entries || {})) {
+    const baseEntry = base.entries[id];
+    const localEntry = local.entries[id];
+    const remoteEntry = remote.entries?.[id];
+    if (!baseEntry || !localEntry || !remoteEntry) continue;
+    if (
+      !entryHeaderMetadataEqual(baseEntry, localEntry) &&
+      entryHeaderMetadataEqual(baseEntry, remoteEntry)
+    ) {
+      ids.add(id);
+    }
+  }
+  return ids;
+}
+
+function classifyEntryConflict(
+  id: string,
+  base: NotebookMetadata | null,
+  local: NotebookMetadata,
+  remote: NotebookMetadata,
+  pendingUpsertIds: Set<string>,
+  pendingDeleteIds: Set<string>,
+  localHeaderOnlyEditIds: Set<string>
+): EntryConflictKind | null {
+  const baseEntry = base?.entries?.[id];
+  const localEntry = local.entries[id];
+  const remoteEntry = remote.entries?.[id];
+
+  // Staged entry JSON or intentional index header edits (date/title live in notebook.json).
+  // Resource/validation-only index churn is ignored so sibling remote edits still apply.
+  const localFileEdited = pendingUpsertIds.has(id) || localHeaderOnlyEditIds.has(id);
+  const localDeleted = pendingDeleteIds.has(id) || (!!baseEntry && !localEntry && !localFileEdited);
+  const remoteDeleted = !!baseEntry && !remoteEntry;
+  const remoteEdited =
+    !!remoteEntry && !!baseEntry && !entriesEqualForMerge(remoteEntry, baseEntry);
+
+  if (localFileEdited && remoteDeleted) return "local_edit_remote_delete";
+  if (localDeleted && remoteEntry && (remoteEdited || !baseEntry)) {
+    return "local_delete_remote_edit";
+  }
+  if (localFileEdited && remoteEntry && remoteEdited) return "both_edited";
+  // Staged upsert vs remote upsert with no/corrupt base: still a content conflict if they differ.
+  if (localFileEdited && remoteEntry && localEntry && !baseEntry && !entriesEqualForMerge(localEntry, remoteEntry)) {
+    return "both_edited";
+  }
+  return null;
 }
 
 /**
  * 3-way merge plus recovery for a polluted base snapshot (local adds looking like
  * remote deletes) and leftover JSON files no longer referenced by merged metadata.
+ *
+ * `fileIds` is the locally known entry file set (workspace tree + pending upserts).
+ * Remote-only entries are always kept even when they are missing from `fileIds`
+ * (e.g. commit/sync before a refresh). Orphans are only files that neither the
+ * merge result nor remote metadata still claim.
+ *
+ * Entries the user did not stage as content upserts adopt remote metadata when
+ * local still matches base (or base is missing) so sibling remote edits survive sync.
+ *
+ * Delete-vs-edit is surfaced as a collision so the UI can prompt instead of
+ * silently resurrecting or discarding work.
  */
 export function reconcileNotebookMerge(
   base: NotebookMetadata | null,
   local: NotebookMetadata,
   remote: NotebookMetadata,
-  options: { fileIds: Set<string>; pendingUpsertIds: Set<string> }
+  options: {
+    fileIds: Set<string>;
+    pendingUpsertIds: Set<string>;
+    pendingDeleteIds?: Set<string>;
+  }
 ): {
   merged: NotebookMetadata;
   hasCollisions: boolean;
   collidingEntryIds: string[];
+  conflictKinds: Record<string, EntryConflictKind>;
   orphanIds: string[];
 } {
-  const { fileIds, pendingUpsertIds } = options;
-  const result = mergeNotebookMetadata(base, local, remote, { validEntryIds: fileIds });
+  const { fileIds, pendingUpsertIds, pendingDeleteIds = new Set<string>() } = options;
+  const localHeaderOnlyEditIds = collectLocalHeaderOnlyEditIds(base, local, remote);
+  const validEntryIds = new Set(fileIds);
+  for (const id of Object.keys(remote.entries || {})) {
+    if (!pendingDeleteIds.has(id)) validEntryIds.add(id);
+  }
+  for (const id of pendingUpsertIds) validEntryIds.add(id);
+  // Keep brand-new local entries even if their JSON is not in the remote tree yet.
+  for (const id of Object.keys(local.entries || {})) {
+    if (!base?.entries?.[id] && !remote.entries?.[id]) validEntryIds.add(id);
+  }
+  // Keep locally deleted entries in the merge set until delete-vs-edit is resolved.
+  for (const id of pendingDeleteIds) {
+    if (remote.entries?.[id] || base?.entries?.[id]) validEntryIds.add(id);
+  }
+
+  const result = mergeNotebookMetadata(base, local, remote, { validEntryIds });
   const entries = { ...result.merged.entries };
-  let restored = false;
+  const conflictKinds: Record<string, EntryConflictKind> = {};
+  const colliding = new Set(result.collidingEntryIds);
+
   for (const id of pendingUpsertIds) {
     if (!entries[id] && local.entries[id]) {
       entries[id] = local.entries[id];
-      restored = true;
     }
   }
-  const merged = restored
-    ? normalizeNotebookMetadata({ ...result.merged, entries })
-    : result.merged;
-  const orphanIds = [...fileIds].filter((id) => !merged.entries[id]);
-  return { ...result, merged, orphanIds };
+
+  // Classify delete/edit conflicts before applying pending deletes.
+  const candidateIds = new Set([
+    ...Object.keys(base?.entries || {}),
+    ...Object.keys(local.entries || {}),
+    ...Object.keys(remote.entries || {}),
+    ...pendingUpsertIds,
+    ...pendingDeleteIds,
+  ]);
+  for (const id of candidateIds) {
+    const kind = classifyEntryConflict(
+      id,
+      base,
+      local,
+      remote,
+      pendingUpsertIds,
+      pendingDeleteIds,
+      localHeaderOnlyEditIds
+    );
+    if (!kind) continue;
+    conflictKinds[id] = kind;
+    colliding.add(id);
+    if (kind === "local_edit_remote_delete" && local.entries[id]) {
+      entries[id] = local.entries[id];
+    } else if (kind === "local_delete_remote_edit" && remote.entries?.[id]) {
+      // Hold remote in merged until the user chooses delete vs keep.
+      entries[id] = remote.entries[id];
+    }
+  }
+
+  // Apply pending deletes only when they are not contested by a remote edit.
+  for (const id of pendingDeleteIds) {
+    if (conflictKinds[id] === "local_delete_remote_edit") continue;
+    if (entries[id]) {
+      delete entries[id];
+    }
+  }
+
+  // Hard rule: entries the user did not stage as upsert/delete always take remote.
+  // Prevents stale/polluted local notebook.json from undoing teammate work.
+  const allIndexIds = new Set([
+    ...Object.keys(entries),
+    ...Object.keys(remote.entries || {}),
+    ...Object.keys(local.entries || {}),
+    ...Object.keys(base?.entries || {}),
+  ]);
+  for (const id of allIndexIds) {
+    if (
+      pendingUpsertIds.has(id) ||
+      pendingDeleteIds.has(id) ||
+      localHeaderOnlyEditIds.has(id) ||
+      conflictKinds[id]
+    ) {
+      continue;
+    }
+
+    const remoteEntry = remote.entries?.[id];
+    if (remoteEntry) {
+      if (!entries[id] || !entriesEqualForMerge(entries[id], remoteEntry)) {
+        entries[id] = remoteEntry;
+      }
+    } else if (entries[id]) {
+      // Remote does not have it. Keep only brand-new local adds (not in base/remote).
+      const isLocalOnlyAdd = !base?.entries?.[id] && local.entries[id];
+      if (!isLocalOnlyAdd) {
+        delete entries[id];
+      }
+    }
+  }
+
+  // Field-merge assets on every surviving entry so a stale local index (or a
+  // same-entry edit) cannot drop remote-only asset paths from metadata.
+  for (const id of Object.keys(entries)) {
+    const localEntry = local.entries?.[id];
+    const remoteEntry = remote.entries?.[id];
+    if (!localEntry && !remoteEntry) continue;
+    const mergedAssets = mergeAssetPaths(
+      base?.entries?.[id]?.assets,
+      localEntry?.assets,
+      remoteEntry?.assets
+    );
+    const current = [...(entries[id].assets || [])].sort();
+    if (JSON.stringify(current) !== JSON.stringify(mergedAssets)) {
+      entries[id] = { ...entries[id], assets: mergedAssets };
+    }
+  }
+
+  // Fill both_edited kinds for collisions that came from content merge,
+  // but only when the user actually staged that entry's file.
+  for (const id of [...colliding]) {
+    if (!conflictKinds[id]) {
+      if (pendingUpsertIds.has(id) || localHeaderOnlyEditIds.has(id)) {
+        conflictKinds[id] = "both_edited";
+      } else {
+        // Index-only / merge-noise collision — do not prompt; remote already applied above.
+        colliding.delete(id);
+      }
+    }
+  }
+
+  // If local did not touch team vs base, take remote team wholesale (logos/member images).
+  let team = result.merged.team;
+  if (remote.team) {
+    const localTeam = local.team;
+    const baseTeam = base?.team;
+    const localTeamUntouched =
+      !localTeam ||
+      !baseTeam ||
+      JSON.stringify({
+        teamName: localTeam.teamName,
+        teamNumber: localTeam.teamNumber,
+        organization: localTeam.organization,
+        startDate: localTeam.startDate,
+        endDate: localTeam.endDate,
+        autoCalculateDates: localTeam.autoCalculateDates,
+        logo: localTeam.logo,
+        logoOriginal: localTeam.logoOriginal,
+        members: localTeam.members,
+      }) ===
+        JSON.stringify({
+          teamName: baseTeam.teamName,
+          teamNumber: baseTeam.teamNumber,
+          organization: baseTeam.organization,
+          startDate: baseTeam.startDate,
+          endDate: baseTeam.endDate,
+          autoCalculateDates: baseTeam.autoCalculateDates,
+          logo: baseTeam.logo,
+          logoOriginal: baseTeam.logoOriginal,
+          members: baseTeam.members,
+        });
+    if (localTeamUntouched) {
+      team = remote.team;
+    }
+  }
+
+  const merged = normalizeNotebookMetadata({
+    ...result.merged,
+    entries,
+    ...(team ? { team } : {}),
+  });
+
+  const collidingEntryIds = [...colliding];
+
+  const orphanIds = [...fileIds].filter(
+    (id) => !merged.entries[id] && !remote.entries?.[id] && !conflictKinds[id]
+  );
+  return {
+    ...result,
+    merged,
+    hasCollisions: collidingEntryIds.length > 0,
+    collidingEntryIds,
+    conflictKinds,
+    orphanIds,
+  };
 }

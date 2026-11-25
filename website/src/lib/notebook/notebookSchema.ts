@@ -288,13 +288,27 @@ function canonicalPhase(p: ProjectPhase): ProjectPhase {
   };
 }
 
-function canonicalEntry(e: EntryMetadata): EntryMetadata {
-  const resources = e.resources || {};
-  const canonicalResources: Record<string, { title: string; caption: string; type: string }> = {};
-  for (const id of Object.keys(resources).sort()) {
-    const r = resources[id];
-    canonicalResources[id] = { type: r.type || "", title: r.title || "", caption: r.caption || "" };
+function canonicalResources(
+  resources: EntryMetadata["resources"] | undefined
+): Record<string, { title: string; caption: string; type: string }> {
+  const src = resources || {};
+  const out: Record<string, { title: string; caption: string; type: string }> = {};
+  for (const id of Object.keys(src).sort()) {
+    const r = src[id];
+    out[id] = { type: r.type || "", title: r.title || "", caption: r.caption || "" };
   }
+  return out;
+}
+
+/** True when two resource indexes match ignoring key insertion order. */
+export function resourcesEqual(
+  a: EntryMetadata["resources"] | undefined,
+  b: EntryMetadata["resources"] | undefined
+): boolean {
+  return JSON.stringify(canonicalResources(a)) === JSON.stringify(canonicalResources(b));
+}
+
+function canonicalEntry(e: EntryMetadata): EntryMetadata {
   return {
     title: e.title || "",
     authors: parseAuthors(e.authors),
@@ -305,7 +319,7 @@ function canonicalEntry(e: EntryMetadata): EntryMetadata {
     filename: e.filename || "",
     order: e.order,
     ...(e.isTemplate ? { isTemplate: true } : {}),
-    resources: canonicalResources,
+    resources: canonicalResources(e.resources),
     references: e.references || [],
     assets: e.assets || [],
     ...(e.isValid !== undefined ? { isValid: e.isValid } : {}),
@@ -560,6 +574,38 @@ export function placeCreatedEntry(metadata: NotebookMetadata, id: string): Noteb
   return reorderEntries(metadata, ids);
 }
 
+/** Update an entry's calendar date and global sidebar order. */
+export function redateEntry(
+  metadata: NotebookMetadata,
+  id: string,
+  newDate: string,
+  updatedAt?: string
+): NotebookMetadata {
+  const entry = metadata.entries[id];
+  if (!entry) return metadata;
+  if (entry.isTemplate) {
+    return normalizeNotebookMetadata({
+      ...metadata,
+      entries: {
+        ...metadata.entries,
+        [id]: { ...entry, date: newDate, ...(updatedAt ? { updatedAt } : {}) },
+      },
+    });
+  }
+  const withDate = normalizeNotebookMetadata({
+    ...metadata,
+    entries: {
+      ...metadata.entries,
+      [id]: { ...entry, date: newDate, ...(updatedAt ? { updatedAt } : {}) },
+    },
+  });
+  const without = sortedEntries(withDate.entries).filter((e) => e.id !== id);
+  const at = insertionIndexForDatedEntry(without, newDate);
+  const ids = without.map((e) => e.id);
+  ids.splice(at, 0, id);
+  return reorderEntries(withDate, ids, { [id]: newDate });
+}
+
 /** Replace the template subsequence in global order. `templateIds` is ascending-order (sortedEntries) sequence. */
 export function reorderTemplateSequence(
   metadata: NotebookMetadata,
@@ -575,10 +621,42 @@ export function reorderTemplateSequence(
   return reorderEntries(metadata, ids);
 }
 
-function withoutOrder<T extends { order: number }>(item: T): string {
-  const rest = { ...item };
-  delete (rest as { order?: number }).order;
-  return JSON.stringify(rest);
+/** Title/authors/phase/date — fields stored in notebook.json, not entry JSON. */
+export function entryHeaderMetadataEqual(
+  a: EntryMetadata | undefined,
+  b: EntryMetadata | undefined
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    (a.title || "") === (b.title || "") &&
+    JSON.stringify(parseAuthors(a.authors)) === JSON.stringify(parseAuthors(b.authors)) &&
+    (a.phase ?? null) === (b.phase ?? null) &&
+    (a.date || "") === (b.date || "") &&
+    !!a.isTemplate === !!b.isTemplate
+  );
+}
+
+/** Compare entry metadata for 3-way merge, ignoring UI-only / volatile fields. */
+export function entriesEqualForMerge(
+  a: EntryMetadata | undefined,
+  b: EntryMetadata | undefined
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const strip = (e: EntryMetadata) => ({
+    title: e.title || "",
+    authors: parseAuthors(e.authors),
+    phase: e.phase ?? null,
+    createdAt: e.createdAt || "",
+    date: e.date || "",
+    filename: e.filename || "",
+    ...(e.isTemplate ? { isTemplate: true as const } : {}),
+    resources: canonicalResources(e.resources),
+    references: [...(e.references || [])].sort(),
+    assets: [...(e.assets || [])].sort(),
+  });
+  return JSON.stringify(strip(a)) === JSON.stringify(strip(b));
 }
 
 export function mergeOrderKeys(
@@ -607,7 +685,8 @@ export function mergeRecordById<T extends { order: number }>(
   base: Record<string, T> | undefined,
   local: Record<string, T> | undefined,
   remote: Record<string, T> | undefined,
-  collidingIds?: string[]
+  collidingIds?: string[],
+  equals: (a: T, b: T) => boolean = (a, b) => JSON.stringify(a) === JSON.stringify(b)
 ): Record<string, T> {
   const bDict = base || {};
   const lDict = local || {};
@@ -621,15 +700,34 @@ export function mergeRecordById<T extends { order: number }>(
     const r = rDict[id];
     if (!b && l && !r) { merged[id] = l; continue; }
     if (!b && !l && r) { merged[id] = r; continue; }
-    if (b && !l && r && JSON.stringify(b) === JSON.stringify(r)) continue;
-    if (b && l && !r && JSON.stringify(b) === JSON.stringify(l)) continue;
-    if (b && l && r && JSON.stringify(b) !== JSON.stringify(l) && JSON.stringify(b) === JSON.stringify(r)) {
+    // Both sides present but no base: do not silently prefer local (drops remote sibling edits).
+    if (!b && l && r) {
+      if (equals(l, r)) { merged[id] = l; continue; }
+      collidingIds?.push(id);
+      merged[id] = l;
+      continue;
+    }
+    if (b && !l && r && equals(b, r)) continue;
+    if (b && l && !r && equals(b, l)) continue;
+    // Local edit vs remote delete — conflict (default keep local until user resolves).
+    if (b && l && !r && !equals(b, l)) {
+      collidingIds?.push(id);
+      merged[id] = l;
+      continue;
+    }
+    // Local delete (missing from index) vs remote edit — conflict (default keep remote until resolve).
+    if (b && !l && r && !equals(b, r)) {
+      collidingIds?.push(id);
+      merged[id] = r;
+      continue;
+    }
+    if (b && l && r && !equals(b, l) && equals(b, r)) {
       merged[id] = l; continue;
     }
-    if (b && l && r && JSON.stringify(b) === JSON.stringify(l) && JSON.stringify(b) !== JSON.stringify(r)) {
+    if (b && l && r && equals(b, l) && !equals(b, r)) {
       merged[id] = r; continue;
     }
-    if (l && r && withoutOrder(l) !== withoutOrder(r) && withoutOrder(l) !== withoutOrder(b || l) && withoutOrder(r) !== withoutOrder(b || r)) {
+    if (l && r && !equals(l, r) && (!b || (!equals(l, b) && !equals(r, b)))) {
       collidingIds?.push(id);
       merged[id] = l;
       continue;

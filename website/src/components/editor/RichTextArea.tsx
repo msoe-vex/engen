@@ -228,6 +228,13 @@ const RichTextArea = ({
         return [
           new Plugin({
             appendTransaction(transactions, oldState, newState) {
+              // Skip decoration-only / metadata-refresh transactions so opening an
+              // entry doesn't look like a user edit (SAVING... flash).
+              const shouldStyle = transactions.some(
+                (t) => t.docChanged || t.getMeta("styleLinks") === true
+              );
+              if (!shouldStyle) return null;
+
               const { tr } = newState;
               let modified = false;
 
