@@ -134,6 +134,14 @@ resource "google_cloud_run_v2_service" "core" {
         value = google_storage_bucket.notebook_assets.name
       }
       env {
+        name  = "FIREBASE_PROJECT_ID"
+        value = var.project_id
+      }
+      env {
+        name  = "GCP_PROJECT_ID"
+        value = var.project_id
+      }
+      env {
         name = "INTERNAL_SERVICE_SECRET"
         value_source {
           secret_key_ref {
@@ -162,6 +170,14 @@ resource "google_cloud_run_v2_service" "collab" {
       env {
         name  = "CORE_URL"
         value = google_cloud_run_v2_service.core.uri
+      }
+      env {
+        name  = "FIREBASE_PROJECT_ID"
+        value = var.project_id
+      }
+      env {
+        name  = "GCP_PROJECT_ID"
+        value = var.project_id
       }
       env {
         name = "INTERNAL_SERVICE_SECRET"
@@ -286,6 +302,14 @@ resource "google_cloud_run_v2_service" "website" {
       env {
         name  = "NEXT_PUBLIC_APP_URL"
         value = var.app_url
+      }
+      env {
+        name  = "FIREBASE_PROJECT_ID"
+        value = var.project_id
+      }
+      env {
+        name  = "GCP_PROJECT_ID"
+        value = var.project_id
       }
       env {
         name  = "BETTER_AUTH_URL"
