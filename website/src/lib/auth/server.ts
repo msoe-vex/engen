@@ -88,9 +88,21 @@ export const auth = betterAuth({
       },
     }),
     passkey({
-      rpID: typeof window !== "undefined" ? window.location.hostname : "localhost",
+      rpID: (() => {
+        const appUrl = process.env.BETTER_AUTH_URL || process.env.NEXT_PUBLIC_APP_URL;
+        if (!appUrl) return "localhost";
+        try {
+          return new URL(appUrl.startsWith("http") ? appUrl : `https://${appUrl}`).hostname;
+        } catch {
+          return "localhost";
+        }
+      })(),
       rpName: "Engineering Notebook",
-      origin: process.env.BETTER_AUTH_URL || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000",
+      origin: (() => {
+        const appUrl = process.env.BETTER_AUTH_URL || process.env.NEXT_PUBLIC_APP_URL;
+        if (!appUrl) return "http://localhost:3000";
+        return appUrl.startsWith("http") ? appUrl : `https://${appUrl}`;
+      })(),
     }),
   ],
 });
