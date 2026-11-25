@@ -82,8 +82,9 @@ resource "google_pubsub_topic" "judge_jobs" {
 }
 
 resource "google_cloud_run_v2_service" "core" {
-  name     = "core"
-  location = var.region
+  name                = "core"
+  location            = var.region
+  deletion_protection = false
   template {
     scaling {
       min_instance_count = 0
@@ -111,8 +112,9 @@ resource "google_cloud_run_v2_service" "core" {
 }
 
 resource "google_cloud_run_v2_service" "collab" {
-  name     = "collab"
-  location = var.region
+  name                = "collab"
+  location            = var.region
+  deletion_protection = false
   template {
     scaling {
       min_instance_count = 0
@@ -139,8 +141,9 @@ resource "google_cloud_run_v2_service" "collab" {
 }
 
 resource "google_cloud_run_v2_service" "website" {
-  name     = "website"
-  location = var.region
+  name                = "website"
+  location            = var.region
+  deletion_protection = false
   template {
     scaling {
       min_instance_count = 0
