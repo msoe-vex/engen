@@ -142,6 +142,11 @@ jobs:
               "google_secret_manager_secret.secrets[\"$s\"]" \
               "projects/${{ env.GCP_PROJECT_ID }}/secrets/$s" 2>/dev/null || true
           done
+          terraform import \
+            -var="project_id=${{ env.GCP_PROJECT_ID }}" \
+            -var="region=${{ env.GCP_REGION }}" \
+            -var="app_url=${{ vars.APP_URL }}" \
+            google_firestore_index.verification_identifier_created_at "projects/${{ env.GCP_PROJECT_ID }}/databases/(default)/collectionGroups/verification/indexes/CICAgOjXh4EK" 2>/dev/null || true
           terraform apply -auto-approve \
             -var="project_id=${{ env.GCP_PROJECT_ID }}" \
             -var="region=${{ env.GCP_REGION }}" \
