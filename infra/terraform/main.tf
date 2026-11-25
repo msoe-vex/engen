@@ -81,6 +81,42 @@ resource "google_pubsub_topic" "judge_jobs" {
   depends_on = [google_project_service.apis]
 }
 
+resource "google_pubsub_subscription" "compile_jobs" {
+  name  = "notebook-jobs-compile-worker"
+  topic = google_pubsub_topic.compile_jobs.name
+  ack_deadline_seconds = 600
+}
+
+resource "google_pubsub_subscription" "judge_jobs" {
+  name  = "notebook-jobs-judge-worker"
+  topic = google_pubsub_topic.judge_jobs.name
+  ack_deadline_seconds = 600
+}
+
+resource "google_pubsub_subscription_iam_member" "compile_subscriber" {
+  subscription = google_pubsub_subscription.compile_jobs.name
+  role         = "roles/pubsub.subscriber"
+  member       = "serviceAccount:${data.google_project.project.number}-compute@developer.gserviceaccount.com"
+}
+
+resource "google_pubsub_subscription_iam_member" "judge_subscriber" {
+  subscription = google_pubsub_subscription.judge_jobs.name
+  role         = "roles/pubsub.subscriber"
+  member       = "serviceAccount:${data.google_project.project.number}-compute@developer.gserviceaccount.com"
+}
+
+resource "google_pubsub_topic_iam_member" "core_compile_publisher" {
+  topic  = google_pubsub_topic.compile_jobs.name
+  role   = "roles/pubsub.publisher"
+  member = "serviceAccount:${data.google_project.project.number}-compute@developer.gserviceaccount.com"
+}
+
+resource "google_pubsub_topic_iam_member" "core_judge_publisher" {
+  topic  = google_pubsub_topic.judge_jobs.name
+  role   = "roles/pubsub.publisher"
+  member = "serviceAccount:${data.google_project.project.number}-compute@developer.gserviceaccount.com"
+}
+
 resource "google_cloud_run_v2_service" "core" {
   name                = "core"
   location            = var.region
@@ -138,6 +174,101 @@ resource "google_cloud_run_v2_service" "collab" {
       }
     }
   }
+  depends_on = [google_project_service.apis, google_secret_manager_secret_iam_member.cloud_run_secret_accessor]
+}
+
+resource "google_cloud_run_v2_service" "compile" {
+  name                = "compile"
+  location            = var.region
+  deletion_protection = false
+  template {
+    scaling {
+      min_instance_count = 0
+      max_instance_count = 3
+    }
+    timeout = "600s"
+    containers {
+      image = "${local.registry}/compile:${var.image_tag}"
+      ports { container_port = 8090 }
+      resources {
+        limits = {
+          cpu    = "2"
+          memory = "2Gi"
+        }
+      }
+      env {
+        name  = "CORE_API_URL"
+        value = google_cloud_run_v2_service.core.uri
+      }
+      env {
+        name  = "GOOGLE_CLOUD_PROJECT"
+        value = var.project_id
+      }
+      env {
+        name  = "PUBSUB_SUBSCRIPTION_COMPILE"
+        value = google_pubsub_subscription.compile_jobs.name
+      }
+      env {
+        name  = "COMPILE_MODE"
+        value = "server"
+      }
+      env {
+        name = "INTERNAL_SERVICE_SECRET"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.secrets["internal-service-secret"].secret_id
+            version = "latest"
+          }
+        }
+      }
+    }
+  }
+  depends_on = [google_project_service.apis, google_secret_manager_secret_iam_member.cloud_run_secret_accessor, google_pubsub_subscription_iam_member.compile_subscriber]
+}
+
+resource "google_cloud_run_v2_service" "judge" {
+  name                = "judge"
+  location            = var.region
+  deletion_protection = false
+  template {
+    scaling {
+      min_instance_count = 0
+      max_instance_count = 3
+    }
+    timeout = "600s"
+    containers {
+      image = "${local.registry}/judge:${var.image_tag}"
+      ports { container_port = 8091 }
+      resources {
+        limits = {
+          cpu    = "1"
+          memory = "1Gi"
+        }
+      }
+      env {
+        name  = "CORE_API_URL"
+        value = google_cloud_run_v2_service.core.uri
+      }
+      env {
+        name  = "GOOGLE_CLOUD_PROJECT"
+        value = var.project_id
+      }
+      env {
+        name  = "PUBSUB_SUBSCRIPTION_JUDGE"
+        value = google_pubsub_subscription.judge_jobs.name
+      }
+      env {
+        name = "INTERNAL_SERVICE_SECRET"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.secrets["internal-service-secret"].secret_id
+            version = "latest"
+          }
+        }
+      }
+    }
+  }
+  depends_on = [google_project_service.apis, google_secret_manager_secret_iam_member.cloud_run_secret_accessor, google_pubsub_subscription_iam_member.judge_subscriber]
 }
 
 resource "google_cloud_run_v2_service" "website" {

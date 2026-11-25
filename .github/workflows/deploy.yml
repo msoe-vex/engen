@@ -53,9 +53,13 @@ jobs:
           docker build -t "$REG/website:$TAG" -f website/Dockerfile .
           docker build -t "$REG/core:$TAG" -f services/core/Dockerfile .
           docker build -t "$REG/collab:$TAG" -f services/collab/Dockerfile .
+          docker build -t "$REG/compile:$TAG" -f services/compile/Dockerfile .
+          docker build -t "$REG/judge:$TAG" -f services/judge/Dockerfile .
           docker push "$REG/website:$TAG"
           docker push "$REG/core:$TAG"
           docker push "$REG/collab:$TAG"
+          docker push "$REG/compile:$TAG"
+          docker push "$REG/judge:$TAG"
 
       - name: Sync secrets to GCP Secret Manager
         run: |
