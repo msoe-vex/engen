@@ -28,7 +28,7 @@ gcloud iam service-accounts create "${SA_NAME}" \
 
 for role in \
   roles/run.admin \
-  roles/artifactregistry.writer \
+  roles/artifactregistry.admin \
   roles/iam.serviceAccountUser \
   roles/secretmanager.admin \
   roles/storage.admin \
