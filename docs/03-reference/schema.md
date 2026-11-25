@@ -174,10 +174,10 @@ revokedAt?         // set when revoked; public lookup removed
 
 | Lookup | Purpose |
 | --- | --- |
-| `organizations/{orgId}/publicNotebookKeys/{key}` → `{ notebookId, linkId }` | Resolve `/o/:orgSlug/n/:key` |
-| `…/notebooks/{notebookId}/shareLinks/{linkId}` | Share link metadata |
-| `…/notebooks/{notebookId}/compileExports/{exportId}` | Retained versions (max 10; optional `label`) |
-| GCS `…/exports/{exportId}.pdf` (+ `latest.pdf` alias) | Compiled PDF bytes |
+| `org/{orgId}/publicNotebookKey/{key}` → `{ notebookId, linkId }` | Resolve `/o/:orgSlug/n/:key` |
+| `…/notebook/{notebookId}/shareLink/{linkId}` | Share link metadata |
+| `…/notebook/{notebookId}/compileExport/{exportId}` | Retained versions (max 10; optional `label`) |
+| GCS `…/export/{exportId}.pdf` (+ `latest.pdf` alias) | Compiled PDF bytes |
 
 Legacy notebook fields `publicAccess` / `publicKey` / `publicExportId` may still exist; Core migrates them into one share link named “Share” on first share-links read.
 
@@ -187,15 +187,15 @@ URL: **`/o/:orgSlug/n/:key`** serves that link’s PDF via website → Core prox
 
 | Field | Notes |
 | --- | --- |
-| `members/{uid}.status` | `"active"` \| `"alumni"` (default active) |
-| `members/{uid}.alumniAt?` | set when moved to alumni |
+| `org/{orgId}/member/{uid}.status` | `"active"` \| `"alumni"` (default active) |
+| `org/{orgId}/member/{uid}.alumniAt?` | set when moved to alumni |
 
 ### Auth / user profile extras
 
 | Field | Notes |
 | --- | --- |
-| `users/{uid}.secondaryEmails[]` | `{ email, verified, verifiedAt? }` — invite matching when verified |
-| `users/{uid}.linkedProviders[]` | provider ids from IdP (informational; source of truth is IdP) |
+| `user/{uid}.secondaryEmails[]` | `{ email, verified, verifiedAt? }` — invite matching when verified |
+| `user/{uid}.linkedProviders[]` | provider ids from IdP (informational; source of truth is IdP) |
 
 ### Notifications
 
