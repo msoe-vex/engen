@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from "react";
-import { useParams } from "next/navigation";
 import { NodeViewWrapper, ReactNodeViewRenderer, NodeViewProps } from "@tiptap/react";
 import { Image as TiptapImage, type ImageOptions } from "@tiptap/extension-image";
 import Image from "next/image";
@@ -7,47 +6,23 @@ import { GripVertical, Trash2, Image as ImageIcon, Upload, Loader2 } from "lucid
 import { generateResourceCaption, generateResourceTitle, type ResourceForAI } from "@/lib/genai";
 import { events, EventNames } from "@/lib/events";
 
-import { compressImageToJpeg, hashContent, convertSvgToPng, getExtensionFromDataUrl } from "@/lib/utils";
+import { compressImageToJpeg, hashContent, convertSvgToPng, getExtensionFromDataUrl, getMimeTypeFromExtension } from "@/lib/utils";
 import { ASSETS_COMPRESSED_DIR, ASSETS_ORIGINAL_DIR } from "@/lib/constants";
-import { ValidationIssuesTooltip } from "@/components/ui";
 import { NodeViewInput } from "./NodeViewInput";
-import { resourceMetaErrors } from "./resourceValidation";
 import GenerateButton from "../ui/GenerateButton";
-
-function isInlineOrRemoteSrc(src: string | null | undefined): boolean {
-  if (!src) return false;
-  return src.startsWith("data:") || src.startsWith("http://") || src.startsWith("https://") || src.startsWith("blob:");
-}
-
-function cloudAssetIdFromPath(path: string, attrsId?: string | null): string | null {
-  if (path.startsWith("cloud:")) return path.slice("cloud:".length);
-  if (attrsId && !path.includes("/") && !isInlineOrRemoteSrc(path)) return attrsId;
-  return null;
-}
-
-export const ImageNodeView = ({ node, selected, updateAttributes, deleteNode, dbName, editor }: NodeViewProps & { dbName: string }) => {
-  const params = useParams();
-  const orgId = typeof params?.orgId === "string" ? params.orgId : "";
-  const notebookId = typeof params?.notebookId === "string" ? params.notebookId : "";
-  const initialSrc = isInlineOrRemoteSrc(node.attrs.src) ? (node.attrs.src as string) : "";
-  const [resolvedSrc, setResolvedSrc] = useState(initialSrc);
-  const [isVisible, setIsVisible] = useState(Boolean(initialSrc));
-  const [isLoading, setIsLoading] = useState(!initialSrc);
+import { patchNodeViewAttrs } from "./patchNodeViewAttrs";
+export const ImageNodeView = ({ node, selected, updateAttributes, deleteNode, dbName, editor, getPos }: NodeViewProps & { dbName: string }) => {
+  const isDataUrl = Boolean(node.attrs.src?.startsWith('data:'));
+  const [resolvedSrc, setResolvedSrc] = useState(isDataUrl ? node.attrs.src : "");
+  const [isVisible, setIsVisible] = useState(isDataUrl);
+  const [isLoading, setIsLoading] = useState(!isDataUrl);
   const [dragEnabled, setDragEnabled] = useState(false);
   const [, setIsResizing] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const fileInputId = `replace-image-${node.attrs.id}`;
 
   useEffect(() => {
-    if (isInlineOrRemoteSrc(node.attrs.src)) {
-      setResolvedSrc(node.attrs.src as string);
-      setIsLoading(false);
-      setIsVisible(true);
-    }
-  }, [node.attrs.src]);
-
-  useEffect(() => {
-    if (isVisible) return;
+    if (isDataUrl || isVisible) return;
     const el = containerRef.current;
     if (!el || typeof IntersectionObserver === "undefined") {
       setIsVisible(true);
@@ -66,28 +41,19 @@ export const ImageNodeView = ({ node, selected, updateAttributes, deleteNode, db
 
     observer.observe(el);
     return () => observer.disconnect();
-  }, [isVisible]);
+  }, [isDataUrl, isVisible]);
 
   useEffect(() => {
     if (!isVisible) return;
     let active = true;
     const load = async () => {
-      const srcAttr = (node.attrs.src as string) || "";
-      if (isInlineOrRemoteSrc(srcAttr)) {
-        if (active) {
-          setResolvedSrc(srcAttr);
-          setIsLoading(false);
-        }
-        return;
-      }
-
-      const targetPath = (node.attrs.filePath as string) || srcAttr || "";
+      const targetPath = (node.attrs.filePath as string) || (node.attrs.src as string) || "";
       if (!targetPath) {
         if (active) setIsLoading(false);
         return;
       }
 
-      if (isInlineOrRemoteSrc(targetPath)) {
+      if (targetPath.startsWith('data:')) {
         if (active) {
           setResolvedSrc(targetPath);
           setIsLoading(false);
@@ -96,11 +62,16 @@ export const ImageNodeView = ({ node, selected, updateAttributes, deleteNode, db
       }
 
       try {
-        const { workspaceState } = await import("@/lib/cloud/workspaceState");
+        // Legacy local store removed in cloud-only build
+        const store = null as unknown as {
+          assetCache: Map<string, string>;
+          getAssetBase64: (p: string) => Promise<string | null>;
+        } | null;
+        if (!store) return;
 
-        // In-memory session cache (populated on upload / prior lazy fetch)
-        if (workspaceState.assetCache.has(targetPath)) {
-          const cached = workspaceState.assetCache.get(targetPath)!;
+        // 1. Check in-memory session cache (0ms)
+        if (store.assetCache.has(targetPath)) {
+          const cached = store.assetCache.get(targetPath)!;
           if (active) {
             setResolvedSrc(cached);
             setIsLoading(false);
@@ -108,25 +79,12 @@ export const ImageNodeView = ({ node, selected, updateAttributes, deleteNode, db
           return;
         }
 
-        const assetId = cloudAssetIdFromPath(targetPath, node.attrs.id as string | null);
-        if (assetId && orgId && notebookId) {
-          const cacheKey = `cloud:${assetId}`;
-          if (workspaceState.assetCache.has(cacheKey)) {
-            const cached = workspaceState.assetCache.get(cacheKey)!;
-            if (active) {
-              setResolvedSrc(cached);
-              setIsLoading(false);
-            }
-            return;
-          }
-          const { cloudApi } = await import("@/lib/cloud/api");
-          const { url } = await cloudApi.getAssetUrl(orgId, notebookId, assetId);
-          workspaceState.assetCache.set(cacheKey, url);
-          if (targetPath !== cacheKey) workspaceState.assetCache.set(targetPath, url);
-          if (active) {
-            setResolvedSrc(url);
-            setIsLoading(false);
-          }
+        // 2. Fetch on-demand via store (pending / disk / GitHub)
+        const b64 = await store.getAssetBase64(targetPath);
+        if (b64 && active) {
+          const dataUrl = b64.startsWith('data:') ? b64 : `data:${getMimeTypeFromExtension(targetPath)};base64,${b64}`;
+          setResolvedSrc(dataUrl);
+          setIsLoading(false);
           return;
         }
       } catch (err) {
@@ -139,7 +97,7 @@ export const ImageNodeView = ({ node, selected, updateAttributes, deleteNode, db
     };
     load();
     return () => { active = false; };
-  }, [node.attrs.src, node.attrs.filePath, node.attrs.id, dbName, isVisible, orgId, notebookId]);
+  }, [node.attrs.src, node.attrs.filePath, dbName, isVisible]);
 
   const startResize = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -166,14 +124,13 @@ export const ImageNodeView = ({ node, selected, updateAttributes, deleteNode, db
     caption: node.attrs.caption,
     imageDataUrl: resolvedSrc?.startsWith("data:") ? resolvedSrc : undefined,
   });
-  const metaErrors = resourceMetaErrors(node.attrs.title, node.attrs.caption, "image");
 
   return (
     <NodeViewWrapper
       ref={containerRef}
       draggable={dragEnabled}
       data-id={node.attrs.id}
-      className={`my-6 group relative w-full transition ${selected ? "z-20" : "z-10"} pl-12`}
+      className={`my-6 group relative w-full transition ${selected ? 'z-100' : 'z-10'} pl-12`}
     >
       <div contentEditable={false} className="absolute left-0 top-0 bottom-0 w-8 flex flex-col items-center justify-center gap-2 z-70">
         <div
@@ -203,12 +160,13 @@ export const ImageNodeView = ({ node, selected, updateAttributes, deleteNode, db
               attr="title"
               value={node.attrs.title || ""}
               placeholder="Give this image a title..."
+              required
+              missingMessage="Title is required for this image."
               className="flex-1 bg-transparent border-none outline-none text-[12px] font-bold tracking-wider text-nb-on-surface-variant placeholder:text-nb-on-surface-variant/30"
             />
-            <ValidationIssuesTooltip errors={metaErrors} />
             <GenerateButton
               label="Generate title"
-              disabled={!resolvedSrc}
+              disabled={!resolvedSrc?.startsWith("data:")}
               run={() => generateResourceTitle(resource())}
               onResult={(title) => patchNodeViewAttrs(editor, getPos, { title })}
             />
@@ -239,20 +197,9 @@ export const ImageNodeView = ({ node, selected, updateAttributes, deleteNode, db
                   previewOriginal = await convertSvgToPng(dataUrl);
                 }
 
-                const { workspaceState } = await import("@/lib/cloud/workspaceState");
-                workspaceState.assetCache.set(newPath, compressed.dataUrl);
-                workspaceState.assetCache.set(originalPath, previewOriginal);
-
                 updateAttributes({ src: compressed.dataUrl, originalSrc: dataUrl, filePath: newPath, originalFilePath: originalPath });
                 setResolvedSrc(compressed.dataUrl);
                 setIsLoading(false);
-
-                // Persist immediately so replacing with the same image after a delete
-                // overwrites any pending asset delete (hash path unchanged).
-                store.enqueue(async () => {
-                  await store.persistFile(originalPath, dataUrl.split(",")[1] || "", `Original Asset: ${originalPath}`, true);
-                  await store.persistFile(newPath, compressed.base64, `Compressed Asset: ${newPath}`, true);
-                });
 
                 events.emit(EventNames.SHOW_NOTIFICATION, { message: 'Image replaced', type: 'success' });
               } catch (err) {
@@ -270,10 +217,10 @@ export const ImageNodeView = ({ node, selected, updateAttributes, deleteNode, db
         </div>
 
         <div className="relative flex justify-center min-h-30 bg-nb-surface-low/10">
-          {isLoading || !isInlineOrRemoteSrc(resolvedSrc) ? (
+          {isLoading || !resolvedSrc || !resolvedSrc.startsWith('data:') ? (
             <div
               style={{ width: node.attrs.width ?? "100%" }}
-              className="h-44 rounded-lg flex flex-col items-center justify-center gap-2 text-nb-on-surface-variant/40 bg-nb-surface-low"
+              className="h-44 rounded-lg bg-nb-surface-low animate-pulse flex flex-col items-center justify-center gap-2 text-nb-on-surface-variant/40"
             >
               <Loader2 size={20} className="animate-spin text-nb-primary/50" />
               <span className="text-[10px] font-bold tracking-wider uppercase">Loading image...</span>
@@ -309,13 +256,14 @@ export const ImageNodeView = ({ node, selected, updateAttributes, deleteNode, db
             attr="caption"
             value={node.attrs.caption || ""}
             placeholder="Add figure description..."
+            required
+            missingMessage="Caption is required for this image."
             multiline
             className="w-full bg-transparent border-none outline-none text-center text-xs font-medium italic text-nb-on-surface/50 group-hover/caption:text-nb-on-surface focus:text-nb-on-surface focus:opacity-100 transition-all leading-relaxed"
           />
           <GenerateButton
             label="Generate caption"
-            // Vision captions need a data URL; signed cloud URLs skip the image part.
-            disabled={!resolvedSrc}
+            disabled={!resolvedSrc?.startsWith("data:")}
             run={() => generateResourceCaption(resource())}
             onResult={(caption) => patchNodeViewAttrs(editor, getPos, { caption })}
           />

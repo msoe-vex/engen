@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
 import type { TiptapEditor } from "@/lib/types";
+import ValidationTooltip from "../ui/ValidationTooltip";
+import { commitNodeViewAttrHistory, patchNodeViewAttrs } from "./patchNodeViewAttrs";
 
 interface NodeViewInputProps {
   value: string;
@@ -9,9 +11,7 @@ interface NodeViewInputProps {
   placeholder?: string;
   className?: string;
   style?: React.CSSProperties;
-  /** @deprecated Validation is shown once per resource block, not per field. */
   required?: boolean;
-  /** @deprecated Unused — kept so call sites can drop gradually. */
   missingMessage?: string;
   editor?: TiptapEditor | null;
   getPos?: () => number | undefined;
@@ -37,8 +37,8 @@ export function NodeViewInput({
   placeholder,
   className,
   style,
-  required: _required = false,
-  missingMessage: _missingMessage,
+  required = false,
+  missingMessage = "This field is required.",
   editor,
   getPos,
   multiline = false,
@@ -49,13 +49,16 @@ export function NodeViewInput({
   spellCheck,
 }: NodeViewInputProps) {
   const [localValue, setLocalValue] = useState(value || "");
-  const [prevValue, setPrevValue] = useState(value);
-  if (value !== prevValue) {
-    setPrevValue(value);
-    setLocalValue(value || "");
-  }
-  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
-  const cursorPositionRef = useRef<number | null>(null);
+  const lastEmittedRef = useRef(value || "");
+  const baselineRef = useRef(value || "");
+  const focusedRef = useRef(false);
+  const undoStackRef = useRef<string[]>([]);
+  const redoStackRef = useRef<string[]>([]);
+  const innerRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
+  const inputRef = inputRefProp ?? innerRef;
+  const selectionRef = useRef<{ start: number; end: number } | null>(null);
+  const showError = required && !localValue.trim();
+  const useAttrPatch = Boolean(editor && getPos && attr);
 
   const rememberSelection = (el?: HTMLInputElement | HTMLTextAreaElement | null) => {
     const target = el ?? inputRef.current;
@@ -193,35 +196,77 @@ export function NodeViewInput({
     }
   };
 
+  const handleFocus = (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    focusedRef.current = true;
+    baselineRef.current = localValue;
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+    onFocusProp?.(e);
+  };
+
+  const handleBlur = (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    // Commit while still "focused" so intermediate attr echoes are ignored.
+    if (useAttrPatch && attr) {
+      commitNodeViewAttrHistory(editor, getPos, attr, baselineRef.current, localValue);
+    }
+    focusedRef.current = false;
+    undoStackRef.current = [];
+    redoStackRef.current = [];
+    baselineRef.current = localValue;
+    lastEmittedRef.current = localValue;
+    onBlurProp?.(e);
+  };
+
+  const wrapperClass = className?.includes("w-full")
+    ? `w-full flex ${multiline ? "items-start" : "items-center"} justify-center gap-1.5`
+    : className?.includes("flex-1")
+      ? "flex-1 min-w-0 flex items-center gap-1.5"
+      : "inline-flex items-center gap-1.5 min-w-0";
+
   const fieldClassName = multiline
     ? `${className || ""} whitespace-pre-wrap break-words resize-none overflow-hidden`.trim()
     : className;
 
-  if (multiline) {
-    return (
-      <textarea
-        ref={inputRef as React.RefObject<HTMLTextAreaElement>}
-        rows={1}
-        value={localValue}
-        onChange={handleChange}
-        onKeyDown={handleKeyDown}
-        placeholder={placeholder}
-        className={fieldClassName}
-        style={style}
-      />
-    );
-  }
-
   return (
-    <input
-      ref={inputRef as React.RefObject<HTMLInputElement>}
-      type="text"
-      value={localValue}
-      onChange={handleChange}
-      onKeyDown={handleKeyDown}
-      placeholder={placeholder}
-      className={className}
-      style={style}
-    />
+    <div className={wrapperClass}>
+      {multiline ? (
+        <textarea
+          ref={inputRef as React.RefObject<HTMLTextAreaElement>}
+          rows={1}
+          value={localValue}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          onSelect={() => rememberSelection()}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          placeholder={placeholder}
+          className={fieldClassName}
+          style={style}
+          spellCheck={spellCheck}
+        />
+      ) : (
+        <input
+          ref={inputRef as React.RefObject<HTMLInputElement>}
+          type="text"
+          value={localValue}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          onSelect={() => rememberSelection()}
+          onFocus={handleFocus}
+          onBlur={handleBlur}
+          placeholder={placeholder}
+          className={className}
+          style={style}
+          spellCheck={spellCheck}
+        />
+      )}
+      {showError && (
+        <ValidationTooltip
+          errors={[missingMessage]}
+          className="shrink-0"
+          triggerClassName="text-amber-500"
+        />
+      )}
+    </div>
   );
 }
