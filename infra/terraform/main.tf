@@ -390,6 +390,28 @@ output "collab_url" {
   value = google_cloud_run_v2_service.collab.uri
 }
 
+# Allow public unauthenticated access to user-facing web services
+resource "google_cloud_run_v2_service_iam_member" "website_public" {
+  name     = google_cloud_run_v2_service.website.name
+  location = google_cloud_run_v2_service.website.location
+  role     = "roles/run.invoker"
+  member   = "allUsers"
+}
+
+resource "google_cloud_run_v2_service_iam_member" "core_public" {
+  name     = google_cloud_run_v2_service.core.name
+  location = google_cloud_run_v2_service.core.location
+  role     = "roles/run.invoker"
+  member   = "allUsers"
+}
+
+resource "google_cloud_run_v2_service_iam_member" "collab_public" {
+  name     = google_cloud_run_v2_service.collab.name
+  location = google_cloud_run_v2_service.collab.location
+  role     = "roles/run.invoker"
+  member   = "allUsers"
+}
+
 resource "google_cloud_run_domain_mapping" "website_domain" {
   count    = can(regex("^https?://", var.app_url)) && !endswith(var.app_url, ".run.app") ? 1 : 0
   location = var.region
