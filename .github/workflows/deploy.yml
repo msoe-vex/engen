@@ -9,7 +9,7 @@ permissions:
   id-token: write
 
 jobs:
-  deploy:
+  prep-registry:
     runs-on: ubuntu-latest
     environment: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
     env:
@@ -17,8 +17,6 @@ jobs:
       GCP_REGION: ${{ vars.GCP_REGION || 'us-central1' }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
       - id: auth
         uses: google-github-actions/auth@v2
@@ -27,9 +25,6 @@ jobs:
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
       - uses: google-github-actions/setup-gcloud@v2
-
-      - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
 
       - uses: hashicorp/setup-terraform@v3
 
@@ -48,20 +43,73 @@ jobs:
             -var="region=${{ env.GCP_REGION }}" \
             -var="app_url=${{ vars.APP_URL }}"
 
-      - name: Build & push images
-        run: |
-          REG="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/engineering-notebook"
-          TAG="${{ github.sha }}"
-          docker build -t "$REG/website:$TAG" -f website/Dockerfile .
-          docker build -t "$REG/core:$TAG" -f services/core/Dockerfile .
-          docker build -t "$REG/collab:$TAG" -f services/collab/Dockerfile .
-          docker build -t "$REG/compile:$TAG" -f services/compile/Dockerfile .
-          docker build -t "$REG/judge:$TAG" -f services/judge/Dockerfile .
-          docker push "$REG/website:$TAG"
-          docker push "$REG/core:$TAG"
-          docker push "$REG/collab:$TAG"
-          docker push "$REG/compile:$TAG"
-          docker push "$REG/judge:$TAG"
+  build-images:
+    needs: prep-registry
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - name: website
+            dockerfile: website/Dockerfile
+          - name: core
+            dockerfile: services/core/Dockerfile
+          - name: collab
+            dockerfile: services/collab/Dockerfile
+          - name: compile
+            dockerfile: services/compile/Dockerfile
+          - name: judge
+            dockerfile: services/judge/Dockerfile
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION || 'us-central1' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and push ${{ matrix.service.name }}
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ matrix.service.dockerfile }}
+          push: true
+          tags: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/engineering-notebook/${{ matrix.service.name }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.service.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service.name }}
+
+  deploy:
+    needs: build-images
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION || 'us-central1' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
 
       - name: Sync secrets to GCP Secret Manager
         run: |
