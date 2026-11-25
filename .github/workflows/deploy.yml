@@ -57,6 +57,7 @@ jobs:
             local name="$1"
             local val="$2"
             if [ -n "$val" ]; then
+              gcloud secrets create "$name" --replication-policy="automatic" 2>/dev/null || true
               printf '%s' "$val" | gcloud secrets versions add "$name" --data-file=-
             fi
           }
