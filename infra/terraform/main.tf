@@ -172,6 +172,10 @@ resource "google_cloud_run_v2_service" "core" {
         value = var.project_id
       }
       env {
+        name  = "CORS_ORIGIN"
+        value = var.app_url != "" ? "${var.app_url},http://localhost:3000" : "http://localhost:3000"
+      }
+      env {
         name = "INTERNAL_SERVICE_SECRET"
         value_source {
           secret_key_ref {
@@ -208,6 +212,10 @@ resource "google_cloud_run_v2_service" "collab" {
       env {
         name  = "GCP_PROJECT_ID"
         value = var.project_id
+      }
+      env {
+        name  = "CORS_ORIGIN"
+        value = var.app_url != "" ? "${var.app_url},http://localhost:3000" : "http://localhost:3000"
       }
       env {
         name = "INTERNAL_SERVICE_SECRET"
