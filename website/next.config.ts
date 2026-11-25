@@ -45,20 +45,32 @@ const nextConfig: NextConfig = {
     ];
   },
   async rewrites() {
+    const rewritesList = [];
+
+    // Proxy client /api/core/* requests to Core service backend
+    const coreTarget = process.env.CORE_API_INTERNAL_URL || process.env.NEXT_PUBLIC_CORE_API_URL;
+    if (coreTarget) {
+      rewritesList.push({
+        source: "/api/core/:path*",
+        destination: `${coreTarget.replace(/\/$/, "")}/:path*`,
+      });
+    }
+
     // When Core/GCS asset base is configured, proxy BusyTeX + LaTeX packages there.
-    // Otherwise Next serves website/public/busytex (+ notebook-template) directly
-    // (npm run download:busytex && npm run bundle:template — no host XeLaTeX required).
-    if (!assetsBase) return [];
-    return [
-      {
-        source: "/busytex/:path*",
-        destination: `${assetsBase}/static/busytex/:path*`,
-      },
-      {
-        source: "/latex/:path*",
-        destination: `${assetsBase}/static/latex/:path*`,
-      },
-    ];
+    if (assetsBase) {
+      rewritesList.push(
+        {
+          source: "/busytex/:path*",
+          destination: `${assetsBase}/static/busytex/:path*`,
+        },
+        {
+          source: "/latex/:path*",
+          destination: `${assetsBase}/static/latex/:path*`,
+        }
+      );
+    }
+
+    return rewritesList;
   },
 };
 

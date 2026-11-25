@@ -4,8 +4,13 @@ import { assertUploadSize } from "@engineering-notebook/shared";
 import { getIdToken } from "@/lib/auth/client";
 import { dedupeGet, dedupeKey } from "@/lib/cloud/fetchDedupe";
 
-const coreBase = () =>
-  (process.env.NEXT_PUBLIC_CORE_API_URL || "http://localhost:8080").replace(/\/$/, "");
+const coreBase = () => {
+  if (typeof window !== "undefined") {
+    // Client-side: use same-origin proxy to eliminate CORS, PNA, and local network prompts
+    return "/api/core";
+  }
+  return (process.env.CORE_API_INTERNAL_URL || process.env.NEXT_PUBLIC_CORE_API_URL || "http://localhost:8080").replace(/\/$/, "");
+};
 
 function byteLengthOf(bytes: Blob | ArrayBuffer | Uint8Array): number {
   if (bytes instanceof Blob) return bytes.size;

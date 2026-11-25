@@ -2,8 +2,12 @@
 
 import { getIdToken } from "@/lib/auth/client";
 
-const coreBase = () =>
-  (process.env.NEXT_PUBLIC_CORE_API_URL || "http://localhost:8080").replace(/\/$/, "");
+const coreBase = () => {
+  if (typeof window !== "undefined") {
+    return "/api/core";
+  }
+  return (process.env.CORE_API_INTERNAL_URL || process.env.NEXT_PUBLIC_CORE_API_URL || "http://localhost:8080").replace(/\/$/, "");
+};
 
 export type NotebookRealtimeEvent =
   | {
