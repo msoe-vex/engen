@@ -40,6 +40,22 @@ jobs:
           docker push "$REG/core:$TAG"
           docker push "$REG/collab:$TAG"
 
+      - name: Sync secrets to GCP Secret Manager
+        run: |
+          sync_secret() {
+            local name="$1"
+            local val="$2"
+            if [ -n "$val" ]; then
+              printf '%s' "$val" | gcloud secrets versions add "$name" --data-file=-
+            fi
+          }
+          sync_secret "better-auth-secret" "${{ secrets.BETTER_AUTH_SECRET }}"
+          sync_secret "internal-service-secret" "${{ secrets.INTERNAL_SERVICE_SECRET }}"
+          sync_secret "google-client-secret" "${{ secrets.GOOGLE_CLIENT_SECRET }}"
+          sync_secret "github-client-secret" "${{ secrets.OAUTH_GITHUB_CLIENT_SECRET }}"
+          sync_secret "discord-client-secret" "${{ secrets.DISCORD_CLIENT_SECRET }}"
+          sync_secret "linkedin-client-secret" "${{ secrets.LINKEDIN_CLIENT_SECRET }}"
+
       - uses: hashicorp/setup-terraform@v3
 
       - name: Terraform Apply
@@ -52,6 +68,6 @@ jobs:
             -var="image_tag=${{ github.sha }}" \
             -var="app_url=${{ vars.APP_URL }}" \
             -var="google_client_id=${{ vars.GOOGLE_CLIENT_ID }}" \
-            -var="github_client_id=${{ vars.GITHUB_CLIENT_ID }}" \
+            -var="github_client_id=${{ vars.OAUTH_GITHUB_CLIENT_ID }}" \
             -var="discord_client_id=${{ vars.DISCORD_CLIENT_ID }}" \
             -var="linkedin_client_id=${{ vars.LINKEDIN_CLIENT_ID }}"

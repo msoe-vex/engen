@@ -69,11 +69,13 @@ To keep idle hosting costs at **\$0/month**, deploy all 5 services to **Cloud Ru
 
 ---
 
-## 3. Terraform & CI/CD Recommendation
+## 3. Terraform & CI/CD Deployment
 
-**Yes, use Terraform + GitHub Actions:**
-- **Terraform:** Provision and version-control your GCP project resources (Cloud Run services with `min-instances = 0`, Firestore, GCS bucket + IAM, Pub/Sub topics/subscriptions, Artifact Registry, and Secret Manager).
-- **GitHub Actions:** On push to `main`, build and push Docker images to Artifact Registry using Workload Identity Federation (keyless auth), then deploy the updated images to Cloud Run.
+Infrastructure and deployments are managed with **Terraform** and **GitHub Actions**:
+
+- **Terraform (`infra/terraform/`):** Provisions Cloud Run services (`min-instances = 0`), Artifact Registry, GCS bucket, Pub/Sub topics, and Secret Manager secrets.
+- **PR Checks (`.github/workflows/ci.yml`):** Runs `tsc --noEmit` and `lint` on pull requests into `main`.
+- **Deployment (`.github/workflows/deploy.yml`):** On push to `dev` or `main`, builds and pushes Docker images to Artifact Registry via Workload Identity Federation, then runs `terraform apply` against the matching GitHub Environment (`dev` or `prod`).
 
 ---
 
@@ -84,8 +86,51 @@ We use **GitHub Environments (`dev` and `prod`)** as the single source of truth 
 - **`dev` branch → `dev` GitHub Environment** (deploys to your dev GCP project)
 - **`main` branch → `prod` GitHub Environment** (deploys to your prod GCP project)
 
-| What | Local Dev | `dev` / `prod` (GitHub Environments) |
-| :--- | :--- | :--- |
-| **App Secrets** (`BETTER_AUTH_SECRET`, `INTERNAL_SERVICE_SECRET`, `*_CLIENT_SECRET`) | `website/.env.local` | **GitHub Environment Secrets** → synced to **GCP Secret Manager** |
-| **CI/CD Auth Secrets** (`GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_SERVICE_ACCOUNT`) | N/A | **GitHub Environment Secrets** |
-| **Non-Secret Config** (`GCP_PROJECT_ID`, `GCP_REGION`, `APP_URL`, `*_CLIENT_ID`) | `website/.env.local` | **GitHub Environment Variables** (passed to Terraform by `deploy.yml`) |
+### Exact Checklist for Each GitHub Environment (`dev` and `prod`)
+
+**GitHub Environment Secrets** (**Settings → Environments → `<env>` → Environment secrets**):
+- `GCP_WORKLOAD_IDENTITY_PROVIDER` — Workload Identity Provider resource name for keyless GCP auth
+- `GCP_SERVICE_ACCOUNT` — Service account email used by GitHub Actions to deploy
+- `BETTER_AUTH_SECRET` — Random 32+ char secret (also stored in GCP Secret Manager as `better-auth-secret`)
+- `INTERNAL_SERVICE_SECRET` — Shared secret between `website`, `core`, `collab`, `compile`, `judge` (GCP Secret Manager: `internal-service-secret`)
+- `GOOGLE_CLIENT_SECRET` — Google OAuth client secret (GCP Secret Manager: `google-client-secret`)
+- `OAUTH_GITHUB_CLIENT_SECRET` — GitHub OAuth client secret (GCP Secret Manager: `github-client-secret`; GitHub disallows `GITHUB_*` secret names)
+- `DISCORD_CLIENT_SECRET` — Discord OAuth client secret (GCP Secret Manager: `discord-client-secret`)
+- `LINKEDIN_CLIENT_SECRET` — LinkedIn OAuth client secret (GCP Secret Manager: `linkedin-client-secret`)
+
+**GitHub Environment Variables** (**Settings → Environments → `<env>` → Environment variables**):
+- `GCP_PROJECT_ID` — Target GCP Project ID (e.g. `notebook-dev` or `notebook-prod`)
+- `GCP_REGION` — GCP Region (e.g. `us-central1`)
+- `APP_URL` — Public HTTPS URL for `website` (e.g. `https://dev.yourdomain.com` or `https://app.yourdomain.com`)
+- `GOOGLE_CLIENT_ID` — Google OAuth Client ID
+- `OAUTH_GITHUB_CLIENT_ID` — GitHub OAuth Client ID (GitHub disallows `GITHUB_*` variable names)
+- `DISCORD_CLIENT_ID` — Discord OAuth Client ID
+- `LINKEDIN_CLIENT_ID` — LinkedIn OAuth Client ID
+
+> **Note:** `NEXT_PUBLIC_CORE_API_URL`, `CORE_API_INTERNAL_URL`, `NEXT_PUBLIC_COLLAB_WS_URL`, and `BETTER_AUTH_URL` are wired automatically by Terraform in `infra/terraform/main.tf`—you do **not** need to set them in GitHub.
+
+### Generating `BETTER_AUTH_SECRET` & `INTERNAL_SERVICE_SECRET`
+Generate strong random values for each environment (`dev` and `prod`):
+```bash
+openssl rand -base64 32
+```
+Store them in **GitHub Environment Secrets**—`deploy.yml` automatically syncs them (and your `*_CLIENT_SECRET` values) into GCP Secret Manager on deploy.
+
+### Setting up `GCP_SERVICE_ACCOUNT` & `GCP_WORKLOAD_IDENTITY_PROVIDER`
+Run the bootstrap script once per GCP project (`dev` and `prod`):
+```bash
+./infra/terraform/bootstrap-gcp.sh <GCP_PROJECT_ID> <GITHUB_OWNER/GITHUB_REPO>
+```
+It enables the required IAM/STS APIs, creates the `github-deploy` service account, configures Workload Identity Federation restricted to your GitHub repository, and prints the exact `GCP_SERVICE_ACCOUNT` and `GCP_WORKLOAD_IDENTITY_PROVIDER` values to paste into your GitHub Environment Secrets.
+
+---
+
+## 5. Custom Domain & DNS (`APP_URL`)
+
+If you use a custom domain (e.g. `app.yourdomain.com` or `dev.yourdomain.com`), Terraform (`google_cloud_run_domain_mapping` in `infra/terraform/main.tf`) automatically creates the Cloud Run domain mapping when `APP_URL` is not a `*.run.app` URL.
+
+You only need to:
+1. Add the DNS record at your DNS provider:
+   - **Subdomain (recommended, e.g. `app.yourdomain.com`):** `CNAME` record pointing to `ghs.googlehosted.com.`
+   - **Apex domain (e.g. `yourdomain.com`):** Add the `A` / `AAAA` records provided by Cloud Run.
+2. Set `APP_URL=https://<your-domain>` in your **GitHub Environment Variables** and ensure all OAuth apps have `https://<your-domain>/api/auth/callback/<provider>` listed as an authorized redirect URI.

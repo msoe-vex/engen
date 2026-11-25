@@ -244,3 +244,17 @@ output "core_url" {
 output "collab_url" {
   value = google_cloud_run_v2_service.collab.uri
 }
+
+resource "google_cloud_run_domain_mapping" "website_domain" {
+  count    = can(regex("^https?://", var.app_url)) && !endswith(var.app_url, ".run.app") ? 1 : 0
+  location = var.region
+  name     = replace(replace(var.app_url, "https://", ""), "http://", "")
+
+  metadata {
+    namespace = var.project_id
+  }
+
+  spec {
+    route_name = google_cloud_run_v2_service.website.name
+  }
+}
