@@ -413,7 +413,7 @@ resource "google_cloud_run_v2_service_iam_member" "collab_public" {
 }
 
 resource "google_cloud_run_domain_mapping" "website_domain" {
-  count    = can(regex("^https?://", var.app_url)) && !endswith(var.app_url, ".run.app") ? 1 : 0
+  count    = var.app_url != "" && !endswith(var.app_url, ".run.app") ? 1 : 0
   location = var.region
   name     = replace(replace(var.app_url, "https://", ""), "http://", "")
 
