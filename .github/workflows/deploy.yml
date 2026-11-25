@@ -29,6 +29,17 @@ jobs:
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
 
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Ensure Artifact Registry exists
+        working-directory: infra/terraform
+        run: |
+          terraform init
+          terraform apply -target=google_artifact_registry_repository.repo -auto-approve \
+            -var="project_id=${{ env.GCP_PROJECT_ID }}" \
+            -var="region=${{ env.GCP_REGION }}" \
+            -var="app_url=${{ vars.APP_URL }}"
+
       - name: Build & push images
         run: |
           REG="${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/engineering-notebook"
