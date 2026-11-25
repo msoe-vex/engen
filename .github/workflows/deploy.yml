@@ -34,7 +34,13 @@ jobs:
       - name: Ensure Artifact Registry exists
         working-directory: infra/terraform
         run: |
-          terraform init
+          gcloud storage buckets create "gs://${{ env.GCP_PROJECT_ID }}-tfstate" --location="${{ env.GCP_REGION }}" 2>/dev/null || true
+          terraform init -backend-config="bucket=${{ env.GCP_PROJECT_ID }}-tfstate" -backend-config="prefix=terraform/state"
+          terraform import \
+            -var="project_id=${{ env.GCP_PROJECT_ID }}" \
+            -var="region=${{ env.GCP_REGION }}" \
+            -var="app_url=${{ vars.APP_URL }}" \
+            google_artifact_registry_repository.repo "projects/${{ env.GCP_PROJECT_ID }}/locations/${{ env.GCP_REGION }}/repositories/engineering-notebook" 2>/dev/null || true
           terraform apply -target=google_artifact_registry_repository.repo -auto-approve \
             -var="project_id=${{ env.GCP_PROJECT_ID }}" \
             -var="region=${{ env.GCP_REGION }}" \
@@ -73,7 +79,7 @@ jobs:
       - name: Terraform Apply
         working-directory: infra/terraform
         run: |
-          terraform init
+          terraform init -backend-config="bucket=${{ env.GCP_PROJECT_ID }}-tfstate" -backend-config="prefix=terraform/state"
           terraform apply -auto-approve \
             -var="project_id=${{ env.GCP_PROJECT_ID }}" \
             -var="region=${{ env.GCP_REGION }}" \
