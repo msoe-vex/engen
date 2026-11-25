@@ -320,12 +320,24 @@ resource "google_cloud_run_v2_service" "website" {
         value = google_cloud_run_v2_service.core.uri
       }
       env {
+        name  = "NEXT_PUBLIC_CORE_API_URL"
+        value = google_cloud_run_v2_service.core.uri
+      }
+      env {
         name  = "CORE_INTERNAL_URL"
+        value = google_cloud_run_v2_service.core.uri
+      }
+      env {
+        name  = "CORE_API_INTERNAL_URL"
         value = google_cloud_run_v2_service.core.uri
       }
       env {
         name  = "NEXT_PUBLIC_COLLAB_URL"
         value = google_cloud_run_v2_service.collab.uri
+      }
+      env {
+        name  = "NEXT_PUBLIC_COLLAB_WS_URL"
+        value = replace(google_cloud_run_v2_service.collab.uri, "https://", "wss://")
       }
       env {
         name = "BETTER_AUTH_SECRET"
