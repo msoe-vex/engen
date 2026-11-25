@@ -28,17 +28,17 @@ Nothing else under `website/src/app/api` today. Page routes and Server Component
 
 ## Nested tenancy paths
 
-Firestore / GCS nest under organizations:
+Firestore / GCS nest under organizations (strictly singular):
 
-- `organizations/{orgId}/members/{uid}`
-- `organizations/{orgId}/teams/{teamId}/members/{uid}`
-- `organizations/{orgId}/notebooks/{notebookId}`
-- `organizations/{orgId}/notebooks/{notebookId}/members/{memberId}` (roster credits)
-- `organizations/{orgId}/notebooks/{notebookId}/entries/{entryId}` (metadata + GCS pointers only)
-- `organizations/{orgId}/notebooks/{notebookId}/assets/{assetId}`
-- `organizations/{orgId}/notebooks/{notebookId}/rubrics/{rubricId}`
-- `organizations/{orgId}/notebooks/{notebookId}/judgments/{judgmentId}`
-- Top-level: `users/{uid}`, `invites/{inviteId}`
+- `org/{orgId}/member/{uid}`
+- `org/{orgId}/team/{teamId}/member/{uid}`
+- `org/{orgId}/notebook/{notebookId}`
+- `org/{orgId}/notebook/{notebookId}/member/{memberId}` (roster credits)
+- `org/{orgId}/notebook/{notebookId}/entry/{entryId}` (metadata + GCS pointers only)
+- `org/{orgId}/notebook/{notebookId}/asset/{assetId}`
+- `org/{orgId}/notebook/{notebookId}/rubric/{rubricId}`
+- `org/{orgId}/notebook/{notebookId}/judgment/{judgmentId}`
+- Top-level: `user/{uid}`, `invite/{inviteId}`
 
 HTTP uses short `/orgs/...` routes that map to the nested collections.
 

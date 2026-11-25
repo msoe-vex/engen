@@ -93,12 +93,12 @@ Keys are plain strings built by [`gcsKeys`](../../packages/shared/src/paths.ts) 
 
 | Blob | Key pattern (`gcsKeys.*`) |
 | --- | --- |
-| TipTap JSON | `organizations/{orgId}/notebooks/{notebookId}/entries/{entryId}.json` |
-| Yjs binary | `…/yjs/{entryId}.ydoc` |
-| Notebook asset | `…/assets/{assetId}/compressed` (and optionally `original`) |
-| Org asset | `organizations/{orgId}/assets/{assetId}/compressed` |
-| Export PDF | `…/exports/{exportId}.pdf` (compile worker writes `latest` via Core) |
-| Rubric source | `…/rubrics/{rubricId}/source{ext}` |
+| TipTap JSON | `org/{orgId}/notebook/{notebookId}/entry/{entryId}.json` |
+| Yjs binary | `org/{orgId}/notebook/{notebookId}/yjs/{entryId}.ydoc` |
+| Notebook asset | `org/{orgId}/notebook/{notebookId}/asset/{assetId}/compressed` (and optionally `original`) |
+| Org asset | `org/{orgId}/asset/{assetId}/compressed` |
+| Export PDF | `org/{orgId}/notebook/{notebookId}/export/{exportId}.pdf` (compile worker writes `latest` via Core) |
+| Rubric source | `org/{orgId}/notebook/{notebookId}/rubric/{rubricId}/source{ext}` |
 | Static BusyTeX / LaTeX | `static/busytex/{appVersion}/…`, `static/latex-template/{appVersion}/…` |
 
 Collab room name: `org:{orgId}:notebook:{notebookId}:entry:{entryId}`.
@@ -107,9 +107,9 @@ Collab room name: `org:{orgId}:notebook:{notebookId}:entry:{entryId}`.
 
 | Concept | Store | UI |
 | --- | --- | --- |
-| **Organization** | `organizations/{id}` | Home / org hub |
-| **Org Team** (ACL group) | `organizations/…/teams` | Org Teams page |
-| **Notebook roster** (credits) | `notebooks/…/members` | Notebook → Members |
+| **Organization** | `org/{id}` | Home / org hub |
+| **Org Team** (ACL group) | `org/{id}/team/{teamId}` | Org Teams page |
+| **Notebook roster** (credits) | `org/{id}/notebook/{id}/member` | Notebook → Members |
 | **Notebook branding** | `title` / `subtitle` / `logoAssetId` / `phases` on notebook | Notebook → Setup (+ phases TBD) |
 
 Do not conflate org ACL Members with notebook credits Members.
@@ -121,7 +121,7 @@ Do not conflate org ACL Members with notebook credits Members.
 | Field | Notes |
 | --- | --- |
 | `AssetMetadata.gcsPathOriginal` | Never written — client uploads a single compressed JPEG today |
-| Metrics | In-memory in Core; Firestore `metrics/…` aspirational |
+| Metrics | In-memory in Core; Firestore `system/metrics` |
 
 See [backlog.md](../01-requirements/backlog.md).
 
@@ -148,21 +148,21 @@ Implemented fields for [FR-org-public-page](../01-requirements/features/FR-org-p
 
 | Path / field | Notes |
 | --- | --- |
-| `organizations/{orgId}.slug` | Globally unique, URL-safe; admin-set if not taken; reserved list |
-| `orgSlugs/{slug}` → `{ orgId }` | Lookup / uniqueness (or equivalent unique index) |
-| `organizations/{orgId}.publicPage` | `{ visibility, announcement?, about?, logoAssetId?, cta?, sections?: { about?, donors?, projects?, events?, members?, social? } }` — section keys omit/true = on; `mission` legacy alias of `about` |
-| `…/donors/{id}` | name, imageAssetId?, url?, tier?, order, `public?` (default true) |
-| `…/projects/{id}` | title, season?, summary, highlights[], externalUrl?, imageAssetId?, order, `public?` |
-| `…/events/{id}` | kind?, day/time or date; title; location; imageAssetId?; order; `public?` |
-| Public members | Org `members/{uid}` where `public !== false` (incl. alumni) |
-| `…/socialLinks/{id}` | label, url, imageAssetId?, order, `public?` |
+| `org/{orgId}.slug` | Globally unique, URL-safe; admin-set if not taken; reserved list |
+| `orgSlug/{slug}` → `{ orgId }` | Lookup / uniqueness (or equivalent unique index) |
+| `org/{orgId}.publicPage` | `{ visibility, announcement?, about?, logoAssetId?, cta?, sections?: { about?, donors?, projects?, events?, members?, social? } }` — section keys omit/true = on; `mission` legacy alias of `about` |
+| `…/donor/{id}` | name, imageAssetId?, url?, tier?, order, `public?` (default true) |
+| `…/project/{id}` | title, season?, summary, highlights[], externalUrl?, imageAssetId?, order, `public?` |
+| `…/event/{id}` | kind?, day/time or date; title; location; imageAssetId?; order; `public?` |
+| Public members | Org `member/{uid}` where `public !== false` (incl. alumni) |
+| `…/socialLink/{id}` | label, url, imageAssetId?, order, `public?` |
 | `…/publicMedia/{id}` | assetId, caption?, order |
 
 Public URLs: `/o/:slug`, `/o/:slug/projects`, `/events`, `/members`.
 
 ### Public notebook share links
 
-Preferred model: explicit `shareLinks/{linkId}` under the notebook:
+Preferred model: explicit `shareLink/{linkId}` under the notebook:
 
 ```
 id, key            // unguessable UUID in the public URL
