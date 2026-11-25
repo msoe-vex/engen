@@ -6,7 +6,7 @@ Local testing: [local-development](../04-guides/local-development.md). Architect
 
 ```
 Browser (website)
-  ├─ Firebase Auth
+  ├─ Better Auth (Website /api/auth/*)
   ├─ Core REST ……………………… domain API (orgs, entries, assets, AI, rubrics/judgments)
   ├─ Collab WSS ………………… realtime Yjs
   ├─ local GenAI URL ……… Ollama / LM Studio (titles/captions only)

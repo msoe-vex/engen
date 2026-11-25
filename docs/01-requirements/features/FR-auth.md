@@ -5,7 +5,7 @@ Related: [api-contracts](../../03-reference/api-contracts.md), [NFR-security](..
 
 ## Summary
 
-Users authenticate via an **identity adapter** (Firebase Auth today, including the emulator locally). Core (and Collab) accept a Bearer ID token verified through **`AuthPort` / IdentityPort** — not by scattering vendor SDK calls in routes. Product roles and grants live in app metadata (`users/{uid}`), not IdP custom claims.
+Users authenticate via **Better Auth** (with Firestore metadata store, Passkeys/WebAuthn, MFA via TOTP and email OTP, and OAuth providers Google, GitHub, Discord, LinkedIn). Core (and Collab) accept a Bearer session token verified through **`AuthPort` / IdentityPort** — not by scattering vendor SDK calls in routes. Product roles and grants live in app metadata (`user`, `session`, `account`, `org_member`), not IdP custom claims.
 
 **Shipped:** email/password sign-up & sign-in, email verification gate, session/bootstrap APIs, local `AUTH_FALLBACK`, password-reset + Google/GitHub client hooks (when providers configured).  
 **Planned:** multi-email (verified secondaries), Collab shared IdentityPort verify, account link/unlink polish.

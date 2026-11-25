@@ -1,6 +1,6 @@
 # Documentation
 
-Cloud engineering notebook: Firebase Auth, Firestore + GCS, Hocuspocus/Yjs on Cloud Run.  
+Cloud engineering notebook: Better Auth (Passkeys, MFA, Social OAuth), Firestore + GCS, Hocuspocus/Yjs on Cloud Run.  
 **One live storage path (GCP).** ZIP is backup (LWW), not sync. Legacy UI: [`website/archive/legacy/`](../website/archive/legacy/).
 
 ## Start here by audience

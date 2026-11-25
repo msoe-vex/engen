@@ -20,7 +20,7 @@ flowchart LR
   end
 
   subgraph GCP["Data & identity"]
-    Auth["Firebase Auth"]
+    Auth["Better Auth"]
     FS["Firestore"]
     GCS["GCS / fake-gcs"]
     Vertex["Vertex AI"]

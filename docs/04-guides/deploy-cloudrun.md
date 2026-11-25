@@ -1,7 +1,9 @@
-# Deploy (Cloud Run)
+# Deploy (Cloud Run — Historical Script)
 
-Script: [`infra/cloudrun/deploy.sh`](../../infra/cloudrun/deploy.sh)  
-Build: [`infra/cloudrun/cloudbuild.yaml`](../../infra/cloudrun/cloudbuild.yaml)
+> [!NOTE]
+> **Recommended Deployment Path:** Deployments are now managed declaratively via **Terraform** and **GitHub Actions** with Workload Identity Federation. See [external-services-setup.md](./external-services-setup.md).
+>
+> This document describes the historical manual deployment script [`infra/cloudrun/deploy.sh`](../../infra/cloudrun/deploy.sh) and [`infra/cloudrun/cloudbuild.yaml`](../../infra/cloudrun/cloudbuild.yaml).
 
 ## Prerequisites
 

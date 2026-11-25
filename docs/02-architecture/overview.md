@@ -32,7 +32,7 @@ flowchart TB
   Collab["collab :1234"]
   Compile["compile :8090"]
   Judge["judge :8091"]
-  Auth["Firebase Auth"]
+  Auth["Better Auth"]
   FS["Firestore"]
   GCS["GCS"]
   Vertex["Vertex AI"]
@@ -67,4 +67,4 @@ Website GenAI routing: [ADR-004](./decisions/ADR-004-agents-genai-gateway.md). C
 
 ## Production
 
-[`infra/cloudrun/deploy.sh`](../../infra/cloudrun/deploy.sh) — see [deploy-cloudrun.md](../04-guides/deploy-cloudrun.md).
+Deployment is automated via GitHub Actions and Terraform: see [external-services-setup.md](../04-guides/external-services-setup.md). Historical shell deploy: [`infra/cloudrun/deploy.sh`](../../infra/cloudrun/deploy.sh) (and [deploy-cloudrun.md](../04-guides/deploy-cloudrun.md)).
