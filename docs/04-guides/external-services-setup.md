@@ -1,157 +1,178 @@
-# External Services & OAuth Setup Guide
+# External Services, GCP & Deployment Setup Guide
 
-This guide covers setting up the external GCP services and Social Login OAuth applications required to run **Engineering Notebook** locally and in production.
+This guide covers setting up the Google Cloud Platform (GCP) infrastructure, custom domain with SSL, and Social Login OAuth applications required to run **Engineering Notebook** locally and in production.
 
 > **Need help?** If you run into any issues or need access to existing developer apps, reach out to **Andrew Needham** at `aneedham0577@gmail.com`.
 
 ---
 
-## 1. Social Login OAuth Apps
+## 1. Overview & Architecture
 
-Authentication is handled by **Better Auth** on the Next.js `website` service. Every OAuth provider uses the same callback URL pattern:
+To keep idle hosting costs at **$0/month**, all 5 services run on **Cloud Run** with automatic scale-to-zero (`min-instances: 0`):
 
-- **Local development:** `http://localhost:3000/api/auth/callback/<provider>`
-- **Production:** `https://<your-domain>/api/auth/callback/<provider>`
+| Service | Source | Role | Public Access |
+| :--- | :--- | :--- | :--- |
+| `website` | `website/Dockerfile` | Next.js UI + Better Auth | Yes (`allUsers`) |
+| `core` | `services/core/Dockerfile` | Fastify API, RBAC, Metadata & Storage authority | Yes (`allUsers`) |
+| `collab` | `services/collab/Dockerfile` | Hocuspocus Yjs WebSocket server | Yes (`allUsers`) |
+| `compile` | `services/compile/Dockerfile` | LaTeX / XeLaTeX PDF compiler worker | No (Pub/Sub pull) |
+| `judge` | `services/judge/Dockerfile` | Python / LangGraph rubric & grading worker | No (Pub/Sub pull) |
 
-### Google (GCP OAuth 2.0)
-1. Open **Google Cloud Console → APIs & Services → Credentials**.
-2. Create an **OAuth 2.0 Client ID** (Application type: **Web application**).
-3. Add **Authorized JavaScript origins**:
-   - `http://localhost:3000`
-   - `https://<your-domain>`
-4. Add **Authorized redirect URIs**:
-   - `http://localhost:3000/api/auth/callback/google`
-   - `https://<your-domain>/api/auth/callback/google`
-5. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` in `website/.env.local` (or Secret Manager).
-
-### GitHub
-1. Open **GitHub → Settings → Developer settings → OAuth Apps → New OAuth App**.
-2. Set **Homepage URL** to `http://localhost:3000` (or `https://<your-domain>`).
-3. Set **Authorization callback URL** to:
-   - `http://localhost:3000/api/auth/callback/github` (create a separate OAuth App for production with `https://<your-domain>/api/auth/callback/github`).
-4. Set `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`.
-
-### Discord
-1. Open **Discord Developer Portal → Applications → OAuth2**.
-2. Add **Redirects**:
-   - `http://localhost:3000/api/auth/callback/discord`
-   - `https://<your-domain>/api/auth/callback/discord`
-3. Set `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET`.
-
-### LinkedIn
-1. Open **LinkedIn Developer Portal → My Apps → Auth**.
-2. Under **Products**, ensure **Sign In with LinkedIn using OpenID Connect** is added.
-3. Add **Authorized redirect URLs for your app**:
-   - `http://localhost:3000/api/auth/callback/linkedin`
-   - `https://<your-domain>/api/auth/callback/linkedin`
-4. Set `LINKEDIN_CLIENT_ID` and `LINKEDIN_CLIENT_SECRET`.
+### Supporting GCP Managed Resources
+1. **Artifact Registry:** Docker repository storing container images for all 5 services.
+2. **Firestore (Native mode):** Primary metadata store (`user`, `session`, `account`, `org`, `notebook`, `entry`, etc.).
+3. **Cloud Storage (GCS):** Private bucket for TipTap JSON documents, Yjs snapshots, image assets, compiled PDFs, and rubric sources.
+4. **Pub/Sub:** Topics and pull subscriptions (`notebook-jobs-compile` and `notebook-jobs-judge`) for background compile and evaluation tasks.
+5. **Secret Manager:** Synchronizes app secrets (`better-auth-secret`, `internal-service-secret`, and OAuth client secrets) without manual GCP console entry.
 
 ---
 
-## 2. Google Cloud Platform (GCP) Services
+## 2. One-Time GCP Bootstrap & Workload Identity
 
-To keep idle hosting costs at **\$0/month**, deploy all 5 services to **Cloud Run** with `min-instances: 0`:
+We use keyless **Workload Identity Federation** so GitHub Actions deploys securely without storing long-lived GCP service account keys in GitHub.
 
-| Service | Source | Role |
-| :--- | :--- | :--- |
-| `website` | `website/Dockerfile` | Next.js UI + Better Auth |
-| `core` | `services/core/Dockerfile` | Fastify API, RBAC, Metadata/Storage authority |
-| `collab` | `services/collab/Dockerfile` | Hocuspocus Yjs WebSocket server |
-| `compile` | `services/compile/Dockerfile` | LaTeX / BusyTeX PDF compiler worker |
-| `judge` | `services/judge/Dockerfile` | Python / LangGraph rubric & grading worker |
-
-### Required GCP Resources
-1. **Artifact Registry:** Docker repository for the 5 service images.
-2. **Firestore (Native mode):** Primary metadata store (`user`, `session`, `account`, `verification`, `org`, `notebook`, `entry`, etc.).
-3. **Cloud Storage (GCS):** Private bucket for TipTap JSON, Yjs snapshots, assets, compiled PDFs, and rubric sources.
-4. **Pub/Sub:** Topics and push/pull subscriptions for `compile` and `judge` async jobs.
-5. **Secret Manager:** Store `BETTER_AUTH_SECRET`, `INTERNAL_SERVICE_SECRET`, and OAuth client secrets.
-
----
-
-## 3. Terraform & CI/CD Deployment
-
-Infrastructure and deployments are managed with **Terraform** and **GitHub Actions**:
-
-- **Terraform (`infra/terraform/`):** Provisions Cloud Run services (`min-instances = 0`), Artifact Registry, GCS bucket, Pub/Sub topics, and Secret Manager secrets.
-- **PR Checks (`.github/workflows/ci.yml`):** Runs `tsc --noEmit` and `lint` on pull requests into `main`.
-- **Deployment (`.github/workflows/deploy.yml`):** On push to `dev` or `main`, builds and pushes Docker images to Artifact Registry via Workload Identity Federation, then runs `terraform apply` against the matching GitHub Environment (`dev` or `prod`).
-
----
-
-## 4. Environments, Secrets & Variables
-
-We use **GitHub Environments (`dev` and `prod`)** as the single source of truth for deployed environments, and `website/.env.local` (gitignored) for local development:
-
-- **`dev` branch → `dev` GitHub Environment** (deploys to your dev GCP project)
-- **`main` branch → `prod` GitHub Environment** (deploys to your prod GCP project)
-
-### Exact Checklist for Each GitHub Environment (`dev` and `prod`)
-
-**GitHub Environment Secrets** (**Settings → Environments → `<env>` → Environment secrets**):
-- `GCP_WORKLOAD_IDENTITY_PROVIDER` — Workload Identity Provider resource name for keyless GCP auth
-- `GCP_SERVICE_ACCOUNT` — Service account email used by GitHub Actions to deploy
-- `BETTER_AUTH_SECRET` — Random 32+ char secret (also stored in GCP Secret Manager as `better-auth-secret`)
-- `INTERNAL_SERVICE_SECRET` — Shared secret between `website`, `core`, `collab`, `compile`, `judge` (GCP Secret Manager: `internal-service-secret`)
-- `GOOGLE_CLIENT_SECRET` — Google OAuth client secret (GCP Secret Manager: `google-client-secret`)
-- `OAUTH_GITHUB_CLIENT_SECRET` — GitHub OAuth client secret (GCP Secret Manager: `github-client-secret`; GitHub disallows `GITHUB_*` secret names)
-- `DISCORD_CLIENT_SECRET` — Discord OAuth client secret (GCP Secret Manager: `discord-client-secret`)
-- `LINKEDIN_CLIENT_SECRET` — LinkedIn OAuth client secret (GCP Secret Manager: `linkedin-client-secret`)
-
-**GitHub Environment Variables** (**Settings → Environments → `<env>` → Environment variables**):
-- `GCP_PROJECT_ID` — Target GCP Project ID (e.g. `notebook-dev` or `notebook-prod`)
-- `GCP_REGION` — GCP Region (e.g. `us-central1`)
-- `APP_URL` — Public HTTPS URL for `website` (e.g. `https://dev.yourdomain.com` or `https://app.yourdomain.com`)
-- `GOOGLE_CLIENT_ID` — Google OAuth Client ID
-- `OAUTH_GITHUB_CLIENT_ID` — GitHub OAuth Client ID (GitHub disallows `GITHUB_*` variable names)
-- `DISCORD_CLIENT_ID` — Discord OAuth Client ID
-- `LINKEDIN_CLIENT_ID` — LinkedIn OAuth Client ID
-
-> **Note:** `NEXT_PUBLIC_CORE_API_URL`, `CORE_API_INTERNAL_URL`, `NEXT_PUBLIC_COLLAB_WS_URL`, and `BETTER_AUTH_URL` are wired automatically by Terraform in `infra/terraform/main.tf`—you do **not** need to set them in GitHub.
-
-### Generating `BETTER_AUTH_SECRET` & `INTERNAL_SERVICE_SECRET`
-Generate strong random values for each environment (`dev` and `prod`):
-```bash
-openssl rand -base64 32
-```
-Store them in **GitHub Environment Secrets**—`deploy.yml` automatically syncs them (and your `*_CLIENT_SECRET` values) into GCP Secret Manager on deploy.
-
-### Setting up `GCP_SERVICE_ACCOUNT` & `GCP_WORKLOAD_IDENTITY_PROVIDER`
 Run the bootstrap script once per GCP project (`dev` and `prod`):
 ```bash
 ./infra/terraform/bootstrap-gcp.sh <GCP_PROJECT_ID> <GITHUB_OWNER/GITHUB_REPO>
 ```
-It enables the required IAM/STS APIs, creates the `github-deploy` service account, configures Workload Identity Federation restricted to your GitHub repository, and prints the exact `GCP_SERVICE_ACCOUNT` and `GCP_WORKLOAD_IDENTITY_PROVIDER` values to paste into your GitHub Environment Secrets.
+
+This script:
+1. Enables required GCP APIs (`iam`, `sts`, `run`, `firestore`, `storage`, `pubsub`, `secretmanager`, `artifactregistry`).
+2. Creates the `github-deploy` service account with required IAM roles (`run.admin`, `artifactregistry.admin`, `secretmanager.admin`, etc.).
+3. Creates the Workload Identity Pool and Provider mapped to your GitHub repository.
+4. Outputs the exact `GCP_SERVICE_ACCOUNT` and `GCP_WORKLOAD_IDENTITY_PROVIDER` values to paste into your GitHub Environment Secrets.
 
 ---
 
-## 5. Custom Domain & DNS (`APP_URL`)
+## 3. Custom Domain & DNS Setup (`APP_URL`)
 
-If you use a custom domain (e.g. `engen-dev.msoevex.com` or `app.msoevex.com`), Terraform (`google_cloud_run_domain_mapping` in `infra/terraform/main.tf`) automatically creates the Cloud Run domain mapping when `APP_URL` is set to a custom domain (non-`*.run.app` URL).
+If using a custom domain (e.g. `engen-dev.msoevex.com` or `app.msoevex.com`), Terraform automatically provisions the Cloud Run domain mapping and requests a Google-managed SSL certificate when `APP_URL` is set to a non-`*.run.app` URL.
 
-### Prerequisites Before First Deployment with Custom Domain
+### Step 1: Verify Domain Ownership in Google Search Console
+Google Cloud Run requires proof of domain ownership before allowing any service to bind to it:
+1. Open [Google Search Console](https://search.console.google.com/search-console/welcome) (sign in with your Google Account).
+2. Add your root domain (e.g. `msoevex.com`) as a **Domain Property**.
+3. Add the verification TXT record to your DNS provider (Cloudflare, Namecheap, GoDaddy, Route53, etc.) and click **Verify**. Verifying the root domain covers all current and future subdomains (`engen-dev.msoevex.com`, `app.msoevex.com`, etc.).
 
-Google Cloud Run requires the caller (the deploy service account) to be an authorized owner of the domain in Google Search Console / Webmaster Central before it allows creating domain mappings:
+### Step 2: Authorize the GitHub Deploy Service Account
+1. In Search Console, navigate to **Settings** → **Users and permissions** → **Add user**.
+2. Enter your deploy service account email:
+   ```
+   github-deploy@<PROJECT_ID>.iam.gserviceaccount.com
+   ```
+3. Set the permission level to **Owner**. This allows Terraform to administer domain mappings on your behalf.
 
-1. **Verify Domain Ownership in Google Search Console:**
-   - Go to [Google Search Console](https://search.console.google.com/search-console/welcome) (sign in with your Google Account).
-   - Add your root domain (e.g. `msoevex.com`) as a **Domain Property** (or URL prefix).
-   - Add the verification TXT record to your DNS provider (Cloudflare, Namecheap, GoDaddy, etc.) and complete verification. Verifying the root domain covers all subdomains (`engen-dev.msoevex.com`, `app.msoevex.com`, etc.).
-2. **Authorize the GitHub Deploy Service Account:**
-   - In Search Console, navigate to **Settings** → **Users and permissions** → **Add user**.
-   - Enter your deploy service account email (e.g. `github-deploy@<PROJECT_ID>.iam.gserviceaccount.com`).
-   - Grant it **Owner** permissions so Terraform can administer domain mappings on GCP.
-3. **Configure DNS Records:**
-   - **Subdomain (recommended, e.g. `engen-dev.msoevex.com`):**
-     - Type: `CNAME`
-     - Host: `engen-dev`
-     - Target: `ghs.googlehosted.com.`
-     - *(If using Cloudflare DNS, set Proxy status to DNS Only / gray cloud until Google provisions the SSL certificate).*
-   - **Apex domain (e.g. `msoevex.com`):**
-     - Add the `A` and `AAAA` records provided by Cloud Run domain mappings.
-4. **Set GitHub Environment Variables & OAuth:**
-   - In your GitHub Environment (`dev` or `prod`), set `APP_URL=https://<your-custom-domain>` (include `https://`).
-   - Ensure all OAuth apps (Google, GitHub, Discord, LinkedIn) list `https://<your-custom-domain>/api/auth/callback/<provider>` as an authorized redirect URI.
+### Step 3: Add the DNS CNAME Record
+In your DNS provider:
+- **Type:** `CNAME`
+- **Name / Host:** `engen-dev` (or your subdomain)
+- **Target / Value:** `ghs.googlehosted.com`
+- **Proxy Status:** DNS Only / Gray Cloud (if using Cloudflare, turn proxy OFF until Google's certificate is issued).
 
 > [!TIP]
-> If domain verification is pending or you want to deploy immediately without a custom domain, set `APP_URL` to your Cloud Run URL (`https://website-<hash>-uc.a.run.app`). Terraform will skip domain mapping and deploy all services immediately.
+> If domain verification is pending, set `APP_URL` to your Cloud Run URL (`https://website-<hash>-uc.a.run.app`). Terraform will skip domain mapping and deploy all services immediately.
+
+---
+
+## 4. Social Login OAuth Apps
+
+Authentication is powered by **Better Auth** on the Next.js `website` service. Create developer apps for each provider using these callback URL patterns:
+
+- **Local development:** `http://localhost:3000/api/auth/callback/<provider>`
+- **Production / Dev Cloud:** `https://<your-custom-domain>/api/auth/callback/<provider>`
+
+### Google (GCP OAuth 2.0)
+1. Open **Google Cloud Console → APIs & Services → Credentials**.
+2. Create an **OAuth 2.0 Client ID** (Type: **Web application**).
+3. **Authorized JavaScript origins:**
+   - `http://localhost:3000`
+   - `https://<your-custom-domain>`
+4. **Authorized redirect URIs:**
+   - `http://localhost:3000/api/auth/callback/google`
+   - `https://<your-custom-domain>/api/auth/callback/google`
+5. Save `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
+
+### GitHub
+1. Open **GitHub → Settings → Developer settings → OAuth Apps → New OAuth App**.
+2. **Homepage URL:** `http://localhost:3000` (or `https://<your-custom-domain>`).
+3. **Authorization callback URL:**
+   - `http://localhost:3000/api/auth/callback/github` (use a dedicated app for production with `https://<your-custom-domain>/api/auth/callback/github`).
+4. Save `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`.
+
+### Discord
+1. Open **Discord Developer Portal → Applications → OAuth2**.
+2. **Redirects:**
+   - `http://localhost:3000/api/auth/callback/discord`
+   - `https://<your-custom-domain>/api/auth/callback/discord`
+3. Save `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET`.
+
+### LinkedIn
+1. Open **LinkedIn Developer Portal → My Apps → Auth**.
+2. Under **Products**, enable **Sign In with LinkedIn using OpenID Connect**.
+3. **Authorized redirect URLs:**
+   - `http://localhost:3000/api/auth/callback/linkedin`
+   - `https://<your-custom-domain>/api/auth/callback/linkedin`
+4. Save `LINKEDIN_CLIENT_ID` and `LINKEDIN_CLIENT_SECRET`.
+
+---
+
+## 5. GitHub Environments, Secrets & Variables
+
+We use **GitHub Environments (`dev` and `prod`)** as the single source of truth for deployment credentials:
+
+- **`dev` branch** → Deploys to `dev` environment (`engen-dev`)
+- **`main` branch** → Deploys to `prod` environment (`engen-prod`)
+
+### Environment Secrets (**Settings → Environments → `<env>` → Secrets**)
+
+| Secret Name | Description |
+| :--- | :--- |
+| `GCP_WORKLOAD_IDENTITY_PROVIDER` | Output from `bootstrap-gcp.sh` |
+| `GCP_SERVICE_ACCOUNT` | Output from `bootstrap-gcp.sh` (`github-deploy@...`) |
+| `BETTER_AUTH_SECRET` | 32+ char random string (`openssl rand -base64 32`) |
+| `INTERNAL_SERVICE_SECRET` | 32+ char shared secret (`openssl rand -base64 32`) |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
+| `OAUTH_GITHUB_CLIENT_SECRET` | GitHub OAuth client secret (renamed to avoid `GITHUB_` prefix) |
+| `DISCORD_CLIENT_SECRET` | Discord OAuth client secret |
+| `LINKEDIN_CLIENT_SECRET` | LinkedIn OAuth client secret |
+
+> [!NOTE]
+> The GitHub Actions pipeline automatically syncs these secrets into **GCP Secret Manager** during deployment. You do not need to enter them manually in the GCP Console.
+
+### Environment Variables (**Settings → Environments → `<env>` → Variables**)
+
+| Variable Name | Example Value | Description |
+| :--- | :--- | :--- |
+| `GCP_PROJECT_ID` | `engen-dev` | Target GCP project ID |
+| `GCP_REGION` | `us-central1` | Cloud Run and Artifact Registry region |
+| `APP_URL` | `https://engen-dev.msoevex.com` | Base public URL (must include `https://`) |
+| `GOOGLE_CLIENT_ID` | `...apps.googleusercontent.com` | Google OAuth Client ID |
+| `OAUTH_GITHUB_CLIENT_ID` | `...` | GitHub OAuth Client ID |
+| `DISCORD_CLIENT_ID` | `...` | Discord OAuth Client ID |
+| `LINKEDIN_CLIENT_ID` | `...` | LinkedIn OAuth Client ID |
+
+---
+
+## 6. CI/CD & Deployment Workflow
+
+The deployment workflow (`.github/workflows/deploy.yml`) is fully automated on git push:
+
+```mermaid
+flowchart TD
+    Push["git push origin dev / main"] --> Prep["1. prep-registry: Ensure Artifact Registry & TF state bucket"]
+    Prep --> Build["2. build-images: 5-way parallel matrix build with GHA layer caching"]
+    subgraph BuildWorkers [Parallel Docker Builds]
+        W1[website]
+        W2[core]
+        W3[collab]
+        W4[compile - XeLaTeX]
+        W5[judge - LangGraph]
+    end
+    Build --> BuildWorkers
+    BuildWorkers --> Deploy["3. deploy: Sync secrets to Secret Manager & run terraform apply"]
+    Deploy --> CloudRun["Cloud Run services updated + Domain Mapping + SSL verified"]
+```
+
+1. **`prep-registry`**: Initializes the Terraform state bucket in GCS and ensures Artifact Registry exists.
+2. **`build-images`**: Runs 5 parallel runners using `docker/build-push-action` with GitHub Actions cache (`type=gha`), speeding up builds from ~15 minutes to under 2 minutes.
+3. **`deploy`**: Syncs secrets to Secret Manager, mounts IAM permissions, and runs `terraform apply` to provision or update services.
