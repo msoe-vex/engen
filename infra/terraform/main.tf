@@ -14,6 +14,8 @@ provider "google" {
   region  = var.region
 }
 
+data "google_project" "project" {}
+
 locals {
   registry = "${var.region}-docker.pkg.dev/${var.project_id}/engineering-notebook"
   secrets = toset([
@@ -62,6 +64,13 @@ resource "google_secret_manager_secret" "secrets" {
   depends_on = [google_project_service.apis]
 }
 
+resource "google_secret_manager_secret_iam_member" "cloud_run_secret_accessor" {
+  for_each  = google_secret_manager_secret.secrets
+  secret_id = each.value.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${data.google_project.project.number}-compute@developer.gserviceaccount.com"
+}
+
 resource "google_pubsub_topic" "compile_jobs" {
   name       = "notebook-jobs-compile"
   depends_on = [google_project_service.apis]
@@ -98,7 +107,7 @@ resource "google_cloud_run_v2_service" "core" {
       }
     }
   }
-  depends_on = [google_project_service.apis]
+  depends_on = [google_project_service.apis, google_secret_manager_secret_iam_member.cloud_run_secret_accessor]
 }
 
 resource "google_cloud_run_v2_service" "collab" {
@@ -232,6 +241,7 @@ resource "google_cloud_run_v2_service" "website" {
       }
     }
   }
+  depends_on = [google_secret_manager_secret_iam_member.cloud_run_secret_accessor]
 }
 
 output "website_url" {
