@@ -41,6 +41,15 @@ resource "google_project_service" "apis" {
   disable_on_destroy = false
 }
 
+resource "google_firestore_database" "database" {
+  project     = var.project_id
+  name        = "(default)"
+  location_id = var.region
+  type        = "FIRESTORE_NATIVE"
+
+  depends_on = [google_project_service.apis]
+}
+
 resource "google_artifact_registry_repository" "repo" {
   location      = var.region
   repository_id = "engineering-notebook"
