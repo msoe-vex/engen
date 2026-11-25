@@ -1,4 +1,4 @@
-FROM node:20-alpine AS deps
+FROM node:22-alpine AS deps
 WORKDIR /app
 COPY packages/shared ./packages/shared
 COPY website/package.json website/package-lock.json* ./website/
@@ -10,7 +10,7 @@ RUN npm install \
   && rm -rf node_modules/@engineering-notebook/shared \
   && cp -R /app/packages/shared node_modules/@engineering-notebook/shared
 
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app/website
 COPY --from=deps /app/website/node_modules ./node_modules
 COPY website/ ./
@@ -39,7 +39,7 @@ ENV NEXT_PUBLIC_CORE_API_URL=$NEXT_PUBLIC_CORE_API_URL \
     NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1

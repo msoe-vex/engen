@@ -1,4 +1,4 @@
-FROM node:20-alpine AS build
+FROM node:22-alpine AS build
 WORKDIR /app
 COPY packages/shared ./packages/shared
 COPY services/collab/package.json ./services/collab/package.json
@@ -12,7 +12,7 @@ RUN npm install --install-links=false \
 COPY services/collab/tsconfig.json ./
 COPY services/collab/src ./src
 
-FROM node:20-alpine
+FROM node:22-alpine
 WORKDIR /app
 COPY --from=build /app/services/collab ./
 ENV PORT=1234

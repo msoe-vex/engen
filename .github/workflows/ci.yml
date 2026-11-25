@@ -12,7 +12,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Install & build shared
         run: npm --prefix packages/shared ci && npm --prefix packages/shared run build

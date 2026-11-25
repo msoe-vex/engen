@@ -1,5 +1,5 @@
 # One-shot XeLaTeX compile job (scale-to-zero / `docker compose run --rm`).
-FROM node:20-bookworm
+FROM node:22-bookworm
 
 RUN apt-get update \
   && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
