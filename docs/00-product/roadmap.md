@@ -30,7 +30,7 @@ Open bugs / older requests: tables [#87](https://github.com/msoe-vex/engineering
 
 ## Platform: jobs & workers
 
-**Current:** `JOB_DISPATCH=pubsub` — Core publishes; `compile` / `judge` **pull**. Compose emulator + Cloud Run deploy path (topics/IAM, min-instances ≥ 1, CPU always-on) — [deploy-cloudrun.md](../04-guides/deploy-cloudrun.md).
+**Current:** `JOB_DISPATCH=pubsub` — Core publishes; `compile` / `judge` **pull**. Compose emulator locally + Cloud Run Terraform deploy path (topics/IAM, scale-to-zero) — [external-services-setup.md](../04-guides/external-services-setup.md).
 
 HTTP Core→worker wake is **retired**.
 

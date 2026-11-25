@@ -23,7 +23,7 @@ Full index (by audience): **[docs/README.md](docs/README.md)** · Agent steerage
 | [services/core/README.md](services/core/README.md) | Core API |
 | [services/collab/README.md](services/collab/README.md) | Realtime collab |
 | [notebook/README.md](notebook/README.md) | LaTeX template submodule |
-| [infra/cloudrun/deploy.sh](infra/cloudrun/deploy.sh) | Production deploy |
+| [infra/terraform/](infra/terraform/) | Terraform infrastructure & Cloud Run provisioning |
 | [infra/docker-compose.yml](infra/docker-compose.yml) | Local full stack |
 | [infra/docker-compose.dev.yml](infra/docker-compose.dev.yml) | Hot-reload overlay (`tsx watch` for APIs) |
 
@@ -116,13 +116,9 @@ Backend highlights: `AUTH_FALLBACK=true`, `FIRESTORE_EMULATOR_HOST`, `STORAGE_BA
 
 ## Cloud Run
 
-```bash
-export PROJECT_ID=your-gcp-project
-export GCS_BUCKET=${PROJECT_ID}-notebook
-bash infra/cloudrun/deploy.sh
-```
+Deployments to GCP Cloud Run are fully automated on git push via **GitHub Actions** (`.github/workflows/deploy.yml`) and **Terraform** (`infra/terraform/`), deploying `website`, `core`, `collab`, `compile`, and `judge` with scale-to-zero (`min-instances: 0`).
 
-Set `AUTH_FALLBACK=false` and `SERVICE_ADMIN_UID=<firebase-uid>` in production.
+See the setup guide: [docs/04-guides/external-services-setup.md](docs/04-guides/external-services-setup.md).
 
 ---
 

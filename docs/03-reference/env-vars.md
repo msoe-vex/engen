@@ -44,4 +44,4 @@ See [`website/.env.example`](../../website/.env.example).
 | `CORS_ORIGIN` | unset → allow all in non-prod | Comma-separated browser origins; production without it denies browser CORS |
 | `REQUIRE_INTERNAL_SECRET` | — | Legacy alias intent covered by fail-closed + `ALLOW_INSECURE_INTERNAL` |
 
-Deploy wiring: [deploy-cloudrun.md](../04-guides/deploy-cloudrun.md).
+Deploy wiring: [external-services-setup.md](../04-guides/external-services-setup.md).

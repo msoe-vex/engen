@@ -35,4 +35,4 @@ npm run lint && npm test && npm run build
 
 ## Deploy
 
-Cloud Run via [infra/cloudrun/deploy.sh](../infra/cloudrun/deploy.sh). Image build context is **repo root** (`website/Dockerfile`) so `@engineering-notebook/shared` is included.
+Deployed to Cloud Run via Terraform and GitHub Actions (`.github/workflows/deploy.yml`). See [docs/04-guides/external-services-setup.md](../docs/04-guides/external-services-setup.md). Image build context is **repo root** (`website/Dockerfile`) so `@engineering-notebook/shared` is included.

@@ -67,4 +67,4 @@ Website GenAI routing: [ADR-004](./decisions/ADR-004-agents-genai-gateway.md). C
 
 ## Production
 
-Deployment is automated via GitHub Actions and Terraform: see [external-services-setup.md](../04-guides/external-services-setup.md). Historical shell deploy: [`infra/cloudrun/deploy.sh`](../../infra/cloudrun/deploy.sh) (and [deploy-cloudrun.md](../04-guides/deploy-cloudrun.md)).
+Deployment is automated via GitHub Actions and Terraform: see [external-services-setup.md](../04-guides/external-services-setup.md).
