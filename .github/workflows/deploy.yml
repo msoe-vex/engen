@@ -83,6 +83,12 @@ jobs:
       - name: Configure Docker for Artifact Registry
         run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
 
+      - name: Resolve project number for Cloud Run URLs
+        id: project-info
+        run: |
+          PROJECT_NUMBER=$(gcloud projects describe "${{ env.GCP_PROJECT_ID }}" --format="value(projectNumber)")
+          echo "project_number=${PROJECT_NUMBER}" >> $GITHUB_OUTPUT
+
       - name: Build and push ${{ matrix.service.name }}
         uses: docker/build-push-action@v5
         with:
@@ -92,6 +98,10 @@ jobs:
           tags: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/engineering-notebook/${{ matrix.service.name }}:${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.service.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service.name }}
+          build-args: |
+            NEXT_PUBLIC_CORE_API_URL=https://core-${{ steps.project-info.outputs.project_number }}.${{ env.GCP_REGION }}.run.app
+            NEXT_PUBLIC_COLLAB_WS_URL=wss://collab-${{ steps.project-info.outputs.project_number }}.${{ env.GCP_REGION }}.run.app
+            NEXT_PUBLIC_APP_URL=${{ vars.APP_URL }}
 
   deploy:
     needs: build-images
