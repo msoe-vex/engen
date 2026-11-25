@@ -33,6 +33,7 @@ for role in \
   roles/secretmanager.admin \
   roles/storage.admin \
   roles/pubsub.admin \
+  roles/datastore.owner \
   roles/serviceusage.serviceUsageAdmin; do
   gcloud projects add-iam-policy-binding "${PROJECT_ID}" \
     --member="serviceAccount:${SA_EMAIL}" \
