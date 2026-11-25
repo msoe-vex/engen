@@ -50,6 +50,27 @@ resource "google_firestore_database" "database" {
   depends_on = [google_project_service.apis]
 }
 
+resource "google_firestore_index" "verification_identifier_created_at" {
+  project    = var.project_id
+  database   = google_firestore_database.database.name
+  collection = "verification"
+
+  fields {
+    field_path = "identifier"
+    order      = "ASCENDING"
+  }
+
+  fields {
+    field_path = "createdAt"
+    order      = "DESCENDING"
+  }
+
+  fields {
+    field_path = "__name__"
+    order      = "DESCENDING"
+  }
+}
+
 resource "google_artifact_registry_repository" "repo" {
   location      = var.region
   repository_id = "engineering-notebook"
