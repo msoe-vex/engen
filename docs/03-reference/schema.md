@@ -1,37 +1,43 @@
 # Cloud data model (schema v5)
 
-Authoritative TypeScript types: [`packages/shared/src/types.ts`](../../packages/shared/src/types.ts).  
-Clients never talk to Firestore/metadata store directly (`infra/firestore.rules` deny); Core / Collab use server adapters ([ADR-009](../02-architecture/decisions/ADR-009-platform-ports.md)).
+Authoritative TypeScript types & Firestore path helpers: [`packages/shared/src/paths.ts`](../../packages/shared/src/paths.ts) and [`packages/shared/src/types.ts`](../../packages/shared/src/types.ts).  
+All Firestore collections and document paths are **strictly singular** across the entire stack. Clients never talk to Firestore/metadata store directly (`infra/firestore.rules` deny); Core / Collab use server adapters ([ADR-009](../02-architecture/decisions/ADR-009-platform-ports.md)).
 
-**Shipped** fields are below. **Planned** product surfaces (public org page, public notebooks, alumni, richer auth) are sketched at the end so FRs and implementation share one contract — update this file when those land in `types.ts`.
-
-## Current collections (implemented)
+## Current collections (Implemented & Strictly Singular)
 
 ### Top-level
 
 | Path | Key fields |
 | --- | --- |
-| `users/{uid}` | `email?`, `displayName?`, `platformRole?` (`service_admin`), `grants?` (`{ platformAi?: boolean }`), `preferences?` (non-secret: theme, authors, genai provider/models — never API keys), `createdAt`, `updatedAt` |
-| `organizations/{orgId}` | `name`, `createdBy`, `createdAt`, `updatedAt` |
-| `invites/{inviteId}` | `orgId`, `email`, `role`, `status?` (`pending`\|`accepted`\|`revoked`), `createdBy`, `createdAt`, `expiresAt`, `acceptedAt?`, `revokedAt?` |
-| `system/metrics` | Platform request counters (persisted by Core) | `totalRequests`, `status2xx/4xx/5xx`, `totalLatencyMs`, `persistedAt` |
+| `user/{uid}` | Better Auth profile (`email`, `name`, `emailVerified`, `image`, `twoFactorEnabled`, `createdAt`, `updatedAt`) |
+| `session/{id}` | Better Auth active sessions (`userId`, `token`, `expiresAt`, `ipAddress`, `userAgent`) |
+| `account/{id}` | Better Auth linked accounts & OAuth credentials (`userId`, `providerId`, `accountId`, `password`) |
+| `verification/{id}` | Better Auth verification tokens (`identifier`, `value`, `expiresAt`, `createdAt`) |
+| `passkey/{id}` | Better Auth WebAuthn passkeys (`userId`, `name`, `publicKey`, `credentialID`, `counter`) |
+| `twoFactor/{id}` | Better Auth MFA settings (`userId`, `secret`, `backupCodes`) |
+| `org/{orgId}` | Organization metadata (`name`, `createdBy`, `createdAt`, `updatedAt`) |
+| `invite/{inviteId}` | Organization invites (`orgId`, `email`, `role`, `status`, `expiresAt`) |
+| `orgSlug/{slug}` | Global uniqueness lookup for public organization vanity URLs |
+| `system/metrics` | Platform request counters (`totalRequests`, `status2xx/4xx/5xx`, `totalLatencyMs`, `persistedAt`) |
 
-### Under `organizations/{orgId}`
+### Under `org/{orgId}`
 
 | Path | Role | Key fields |
 | --- | --- | --- |
-| `members/{uid}` | Org ACL + public credits | `role`, `title?`, `public?` (default true), `email?`, `displayName?`, `imageAssetId?`, `status?` (`active`\|`alumni`), `joinedAt` |
-| `assets/{assetId}` | Org-scoped media | `contentType`, `byteSize`, `gcsPath`, `createdBy`, `usedBy[]` — GCS `organizations/{orgId}/assets/{id}/compressed` |
-| `teams/{teamId}` | Org ACL groups (not notebook branding) | `name`, `createdBy`, timestamps |
-| `teams/{teamId}/members/{uid}` | Team membership | `joinedAt` |
-| `notebooks/{notebookId}` | Notebook summary | See below |
-| `notebooks/{id}/members/{memberId}` | **Legacy** credits docs (prefer `contributorUids`) | `name`, `role`, `order`, `imageAssetId?`, `orgMemberUid?`, `deletedAt?` |
-| `notebooks/{id}/entries/{entryId}` | Entry **metadata only** | See below |
-| `…/entries/{entryId}/comments/{commentId}` | Comment **thread body** (anchor is TipTap mark) | `body`, `createdBy`, `createdAt`, `resolvedAt?`, `anchorQuote?`, `mentionedUids?` |
-| `notebooks/{id}/assets/{assetId}` | Notebook asset metadata | `contentType`, `byteSize`, `gcsPath`, `createdBy`, `usedBy[]` |
-| `notebooks/{id}/rubrics/{rubricId}` | Competition rubrics | `name`, `matrix?`, `status` (`uploaded`\|`normalizing`\|`ready`\|`failed`), `sourceGcsPath?`, `deletedAt?`, … |
-| `notebooks/{id}/judgments/{judgmentId}` | Judge grades | `rubricId`, `matrix`, `categories[]`, `totalPoints`, `totalMaxPoints`, `summary`, `status` (`running`\|`completed`\|`failed`), `jobId?`, … |
-| `notebooks/{id}/jobs/{jobId}` | Async jobs | `type` (`compile`\|`judge`\|…), `status`, `payload`, `result?`, … |
+| `member/{uid}` | Org ACL + public profile credits | `role`, `title?`, `public?` (default true), `email?`, `displayName?`, `imageAssetId?`, `status?` (`active`\|`alumni`), `joinedAt` |
+| `asset/{assetId}` | Org-scoped media | `contentType`, `byteSize`, `gcsPath`, `createdBy`, `usedBy[]` — GCS `org/{orgId}/asset/{id}/compressed` |
+| `team/{teamId}` | Org ACL groups | `name`, `createdBy`, timestamps |
+| `team/{teamId}/member/{uid}` | Team membership | `joinedAt` |
+| `notebook/{notebookId}` | Notebook summary | Name, folders tree, phases, contributor UIDs, latest export |
+| `notebook/{id}/member/{memberId}` | Legacy credits docs | `name`, `role`, `order`, `imageAssetId?`, `orgMemberUid?`, `deletedAt?` |
+| `notebook/{id}/entry/{entryId}` | Entry metadata only | See below |
+| `notebook/{id}/entry/{entryId}/comment/{commentId}` | Comment thread body | `body`, `createdBy`, `createdAt`, `resolvedAt?`, `anchorQuote?`, `mentionedUids?` |
+| `notebook/{id}/asset/{assetId}` | Notebook asset metadata | `contentType`, `byteSize`, `gcsPath`, `createdBy`, `usedBy[]` |
+| `notebook/{id}/rubric/{rubricId}` | Competition rubrics | `name`, `matrix?`, `status`, `sourceGcsPath?`, `deletedAt?` |
+| `notebook/{id}/judgment/{judgmentId}` | Judge grades | `rubricId`, `matrix`, `categories[]`, `totalPoints`, `totalMaxPoints`, `summary`, `status` |
+| `notebook/{id}/job/{jobId}` | Async jobs | `type` (`compile`\|`judge`), `status`, `payload`, `result?` |
+| `notebook/{id}/compileExport/{exportId}` | Compiled export metadata | Export status, format, GCS PDF path |
+| `notebook/{id}/shareLink/{linkId}` | Public share links | `token`, `role`, `accessMode`, `expiresAt` |
 
 ### Notebook summary (`NotebookSummary`)
 
