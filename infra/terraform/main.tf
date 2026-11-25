@@ -168,7 +168,7 @@ resource "google_cloud_run_v2_service" "collab" {
       image = "${local.registry}/collab:${var.image_tag}"
       ports { container_port = 1234 }
       env {
-        name  = "CORE_URL"
+        name  = "CORE_API_URL"
         value = google_cloud_run_v2_service.core.uri
       }
       env {
@@ -316,24 +316,12 @@ resource "google_cloud_run_v2_service" "website" {
         value = var.app_url
       }
       env {
-        name  = "NEXT_PUBLIC_CORE_URL"
-        value = google_cloud_run_v2_service.core.uri
-      }
-      env {
         name  = "NEXT_PUBLIC_CORE_API_URL"
-        value = google_cloud_run_v2_service.core.uri
-      }
-      env {
-        name  = "CORE_INTERNAL_URL"
         value = google_cloud_run_v2_service.core.uri
       }
       env {
         name  = "CORE_API_INTERNAL_URL"
         value = google_cloud_run_v2_service.core.uri
-      }
-      env {
-        name  = "NEXT_PUBLIC_COLLAB_URL"
-        value = google_cloud_run_v2_service.collab.uri
       }
       env {
         name  = "NEXT_PUBLIC_COLLAB_WS_URL"
