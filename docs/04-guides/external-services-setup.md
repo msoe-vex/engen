@@ -127,10 +127,31 @@ It enables the required IAM/STS APIs, creates the `github-deploy` service accoun
 
 ## 5. Custom Domain & DNS (`APP_URL`)
 
-If you use a custom domain (e.g. `app.yourdomain.com` or `dev.yourdomain.com`), Terraform (`google_cloud_run_domain_mapping` in `infra/terraform/main.tf`) automatically creates the Cloud Run domain mapping when `APP_URL` is not a `*.run.app` URL.
+If you use a custom domain (e.g. `engen-dev.msoevex.com` or `app.msoevex.com`), Terraform (`google_cloud_run_domain_mapping` in `infra/terraform/main.tf`) automatically creates the Cloud Run domain mapping when `APP_URL` is set to a custom domain (non-`*.run.app` URL).
 
-You only need to:
-1. Add the DNS record at your DNS provider:
-   - **Subdomain (recommended, e.g. `app.yourdomain.com`):** `CNAME` record pointing to `ghs.googlehosted.com.`
-   - **Apex domain (e.g. `yourdomain.com`):** Add the `A` / `AAAA` records provided by Cloud Run.
-2. Set `APP_URL=https://<your-domain>` in your **GitHub Environment Variables** and ensure all OAuth apps have `https://<your-domain>/api/auth/callback/<provider>` listed as an authorized redirect URI.
+### Prerequisites Before First Deployment with Custom Domain
+
+Google Cloud Run requires the caller (the deploy service account) to be an authorized owner of the domain in Google Search Console / Webmaster Central before it allows creating domain mappings:
+
+1. **Verify Domain Ownership in Google Search Console:**
+   - Go to [Google Search Console](https://search.console.google.com/search-console/welcome) (sign in with your Google Account).
+   - Add your root domain (e.g. `msoevex.com`) as a **Domain Property** (or URL prefix).
+   - Add the verification TXT record to your DNS provider (Cloudflare, Namecheap, GoDaddy, etc.) and complete verification. Verifying the root domain covers all subdomains (`engen-dev.msoevex.com`, `app.msoevex.com`, etc.).
+2. **Authorize the GitHub Deploy Service Account:**
+   - In Search Console, navigate to **Settings** → **Users and permissions** → **Add user**.
+   - Enter your deploy service account email (e.g. `github-deploy@<PROJECT_ID>.iam.gserviceaccount.com`).
+   - Grant it **Owner** permissions so Terraform can administer domain mappings on GCP.
+3. **Configure DNS Records:**
+   - **Subdomain (recommended, e.g. `engen-dev.msoevex.com`):**
+     - Type: `CNAME`
+     - Host: `engen-dev`
+     - Target: `ghs.googlehosted.com.`
+     - *(If using Cloudflare DNS, set Proxy status to DNS Only / gray cloud until Google provisions the SSL certificate).*
+   - **Apex domain (e.g. `msoevex.com`):**
+     - Add the `A` and `AAAA` records provided by Cloud Run domain mappings.
+4. **Set GitHub Environment Variables & OAuth:**
+   - In your GitHub Environment (`dev` or `prod`), set `APP_URL=https://<your-custom-domain>` (include `https://`).
+   - Ensure all OAuth apps (Google, GitHub, Discord, LinkedIn) list `https://<your-custom-domain>/api/auth/callback/<provider>` as an authorized redirect URI.
+
+> [!TIP]
+> If domain verification is pending or you want to deploy immediately without a custom domain, set `APP_URL` to your Cloud Run URL (`https://website-<hash>-uc.a.run.app`). Terraform will skip domain mapping and deploy all services immediately.
