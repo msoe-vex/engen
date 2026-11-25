@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useTheme } from "next-themes";
 import { AlertTriangle, ChevronDown, Eye, EyeOff, Globe, KeyRound, Loader2, Monitor, Moon, Search, Settings, Sparkles, Sun, X } from "lucide-react";
-import { readLastAuthors, writeLastAuthors } from "@/lib/notebook/metadata";
+import { readDefaultAuthors, writeDefaultAuthors } from "@/lib/notebook/metadata";
 import {
   GENAI_PROVIDERS,
   getGenAIApiKey,
@@ -21,7 +21,11 @@ import {
   type GenAIModelOption,
 } from "@/lib/genai";
 import { fetchGenAIModels } from "@/lib/genai/client";
-import { useWorkspace } from "@/hooks/useWorkspace";
+import {
+  hydratePreferencesFromServer,
+  schedulePreferencesSync,
+} from "@/lib/cloud/userPreferences";
+import { useCloudWorkspace } from "@/hooks/useCloudWorkspace";
 import AuthorsInput from "@/components/editor/ui/AuthorsInput";
 
 interface SettingsPageProps {
@@ -35,13 +39,13 @@ const THEME_OPTIONS = [
   { id: "dark", label: "Dark", hint: "Always dark", icon: Moon },
 ] as const;
 
-function subscribeLastAuthors(onChange: () => void) {
+function subscribeDefaultAuthors(onChange: () => void) {
   window.addEventListener("storage", onChange);
   return () => window.removeEventListener("storage", onChange);
 }
 
-function getLastAuthorsJson() {
-  return JSON.stringify(readLastAuthors());
+function getDefaultAuthorsJson() {
+  return JSON.stringify(readDefaultAuthors());
 }
 
 function getEmptyAuthorsJson() {
@@ -58,8 +62,8 @@ function getGenAISettingsJson() {
 
 export default function SettingsPage({ onClose, isEmbedded = false }: SettingsPageProps) {
   const { theme, setTheme } = useTheme();
-  const { metadata } = useWorkspace();
-  const storedAuthorsJson = useSyncExternalStore(subscribeLastAuthors, getLastAuthorsJson, getEmptyAuthorsJson);
+  const { metadata } = useCloudWorkspace();
+  const storedAuthorsJson = useSyncExternalStore(subscribeDefaultAuthors, getDefaultAuthorsJson, getEmptyAuthorsJson);
   const storedGenAIJson = useSyncExternalStore(subscribeGenAISettings, getGenAISettingsJson, getEmptyGenAIJson);
   const [authorsOverride, setAuthorsOverride] = useState<string[] | null>(null);
   const [apiKeyDraft, setApiKeyDraft] = useState<string | null>(null);
@@ -162,33 +166,61 @@ export default function SettingsPage({ onClose, isEmbedded = false }: SettingsPa
   }
   const authorOptions = Array.from(names).sort((a, b) => a.localeCompare(b));
 
-  const selectedTheme = theme || "system";
+  const [mounted, setMounted] = useState(false);
+  const selectedTheme = mounted ? (theme || "system") : "system";
+  const [prefsReady, setPrefsReady] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    void hydratePreferencesFromServer((t) => setTheme(t)).finally(() => setPrefsReady(true));
+    // Run once on mount to populate preferences
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!prefsReady || !mounted) return;
+    schedulePreferencesSync(selectedTheme);
+  }, [prefsReady, mounted, selectedTheme, storedAuthorsJson, storedGenAIJson]);
 
   return (
-    <div className={isEmbedded ? "w-full h-full flex flex-col bg-nb-bg overflow-hidden" : "fixed inset-0 z-[600] bg-nb-bg flex flex-col animate-in fade-in duration-300"}>
-      <div className="flex items-center justify-between px-8 h-16 border-b border-nb-outline-variant bg-nb-surface shadow-nb-sm shrink-0">
-        <div className="flex items-center gap-4">
-          <div className="w-10 h-10 rounded-xl bg-nb-primary/10 text-nb-primary flex items-center justify-center">
-            <Settings size={20} />
+    <div
+      className={
+        isEmbedded
+          ? "flex w-full flex-col overflow-hidden"
+          : "fixed inset-0 z-[600] flex animate-in flex-col bg-nb-bg fade-in duration-300"
+      }
+    >
+      {!isEmbedded && (
+        <div className="flex h-16 shrink-0 items-center justify-between border-b border-nb-outline-variant bg-nb-surface px-8 shadow-nb-sm">
+          <div className="flex items-center gap-4">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-nb-primary/10 text-nb-primary">
+              <Settings size={20} />
+            </div>
+            <div>
+              <h1 className="text-nb-title font-bold tracking-tight text-nb-on-surface">
+                Preferences
+              </h1>
+              <p className="hidden text-nb-caption font-semibold uppercase tracking-wider text-nb-on-surface-variant/50 sm:block">
+                Synced account · keys stay local
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-sm md:text-lg font-black text-nb-on-surface tracking-tight leading-tight">Settings</h1>
-            <p className="hidden sm:block text-[10px] font-black tracking-[0.2em] text-nb-on-surface-variant/40 uppercase">
-              This browser only
-            </p>
-          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="cursor-pointer rounded-lg p-2 text-nb-on-surface-variant transition-colors hover:bg-nb-surface-low hover:text-nb-on-surface"
+            title="Close"
+          >
+            <X size={20} />
+          </button>
         </div>
-        <button
-          onClick={onClose}
-          className="p-2 rounded-lg hover:bg-nb-surface-low text-nb-on-surface-variant hover:text-nb-on-surface transition-colors cursor-pointer"
-          title="Close Settings"
-        >
-          <X size={20} />
-        </button>
-      </div>
+      )}
 
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-8">
-        <div className="max-w-xl mx-auto space-y-10 pb-12">
+      <div className={`flex-1 overflow-y-auto custom-scrollbar ${isEmbedded ? "p-0" : "p-8"}`}>
+        <div className={`space-y-10 pb-12 ${isEmbedded ? "w-full max-w-4xl" : "mx-auto max-w-xl"}`}>
           <section className="space-y-3">
             <label className="text-[10px] font-black uppercase tracking-[0.2em] text-nb-on-surface-variant ml-1">
               Default author
@@ -200,7 +232,7 @@ export default function SettingsPage({ onClose, isEmbedded = false }: SettingsPa
               className="h-14 rounded-2xl bg-nb-surface border-nb-outline-variant px-4"
               onChange={(next) => {
                 setAuthorsOverride(next);
-                writeLastAuthors(next);
+                writeDefaultAuthors(next);
               }}
             />
             <p className="text-xs text-nb-on-surface-variant/70 leading-relaxed ml-1 mb-6">
@@ -335,7 +367,7 @@ export default function SettingsPage({ onClose, isEmbedded = false }: SettingsPa
                         setGenAIBaseUrl(e.target.value, provider);
                       }}
                       className="flex-1 min-w-0 bg-transparent outline-none text-sm font-medium text-nb-on-surface placeholder:text-nb-on-surface-variant/40"
-                      aria-label="Local model URL"
+                      aria-label="Custom AI model URL"
                     />
                   </div>
                 )}

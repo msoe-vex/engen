@@ -1,59 +1,38 @@
 # Website
 
-This folder contains the Next.js editor and notebook sync application.
+Next.js UI for the engineering notebook. **Entry point is `/`** (Firebase → orgs → notebooks → entries). Folder routes under `app/(app)/`. Old `/cloud/*` URLs redirect to `/`.
 
-## Local Development
+Live storage is **GCP only** (Core/Firestore/GCS). ZIP export/import is backup (LWW). Old GitHub/local project UI is archived under [`archive/legacy/`](./archive/legacy/) — see [LEGACY.md](./LEGACY.md). Docs: [docs/README.md](../docs/README.md) · requirements [01-requirements](../docs/01-requirements/).
 
-Install dependencies and start the dev server:
+**Local stack:** [docs/04-guides/local-development.md](../docs/04-guides/local-development.md) · **Root:** [../README.md](../README.md)
 
-```bash
-npm install
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) in your browser.
-
-## Required Environment Variables
-
-Create a `.env.local` file in this folder:
+## Quick start
 
 ```bash
-NEXT_PUBLIC_GITHUB_CLIENT_ID=your_github_oauth_client_id
-GITHUB_CLIENT_SECRET=your_github_oauth_client_secret
+# Terminal 1 — APIs + emulators (watch)
+cd ../infra && docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build firebase gcs core collab
+
+# Terminal 2 — this package
+npm install && npm run dev
 ```
 
-- `NEXT_PUBLIC_GITHUB_CLIENT_ID` is read by the browser-side login flow.
-- `GITHUB_CLIENT_SECRET` is used by the server-side OAuth exchange route.
+Open http://localhost:3000 · Firebase Emulator UI http://localhost:4000  
+Full guide: [docs/04-guides/local-development.md](../docs/04-guides/local-development.md).
 
-If you deploy to Vercel, set the same variables in the Vercel project settings for both Preview and Production.
-
-## GitHub App Setup
-
-When creating the GitHub OAuth/GitHub App for this project:
-
-- Homepage URL: your public deployed app URL, such as `https://your-domain.com`
-- Callback / redirect URL: the public URL that returns the user to the app after GitHub authorization
-- Keep the GitHub app URLs in sync with your deployed domain and any preview URLs you intentionally test against
-
-If the deployed domain changes, update the GitHub app settings at the same time.
-
-## Before Merging
-
-Run these checks before opening or merging a PR into `main`:
+## Environment
 
 ```bash
-npm run lint
-npm run build
+cp .env.example .env.local
 ```
 
-## Vercel Deployment
+See `.env.example` for all `NEXT_PUBLIC_*` keys. Emulator Auth requires `NEXT_PUBLIC_USE_FIREBASE_EMULATOR=true`.
 
-Recommended deployment setup:
+## Checks
 
-1. Import the GitHub repository into Vercel.
-2. Set the project root directory to `website`.
-3. Add `NEXT_PUBLIC_GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET` in the Vercel environment variables.
-4. Enable automatic deploys from the connected GitHub branch.
-5. Add a custom domain in Vercel and point DNS to the provided Vercel targets.
+```bash
+npm run lint && npm test && npm run build
+```
 
-Preview deployments are useful for testing changes before they land on `main`.
+## Deploy
+
+Cloud Run via [infra/cloudrun/deploy.sh](../infra/cloudrun/deploy.sh). Image build context is **repo root** (`website/Dockerfile`) so `@engineering-notebook/shared` is included.

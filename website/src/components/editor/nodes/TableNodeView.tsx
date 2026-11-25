@@ -6,88 +6,14 @@ import { TextSelection } from "@tiptap/pm/state";
 import { Table } from "@tiptap/extension-table";
 import { TableCell } from "@tiptap/extension-table-cell";
 import { TableHeader } from "@tiptap/extension-table-header";
-import { GripVertical, Trash2, Table as TableIcon, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Rows3, Columns3, FlipHorizontal2 } from "lucide-react";
+import { GripVertical, Trash2, Table as TableIcon, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Rows3, Columns3 } from "lucide-react";
+import { ValidationIssuesTooltip } from "@/components/ui";
 import { NodeViewInput } from "./NodeViewInput";
+import { resourceMetaErrors } from "./resourceValidation";
 import GenerateButton from "../ui/GenerateButton";
 import { generateResourceCaption, generateResourceTitle } from "@/lib/genai";
-import { patchNodeViewAttrs } from "./patchNodeViewAttrs";
 
-export type CellSnapshot = {
-  type: string;
-  attrs: Record<string, unknown>;
-  content: unknown;
-};
-
-const emptyCell = (): CellSnapshot => ({
-  type: "tableCell",
-  attrs: { colspan: 1, rowspan: 1, colwidth: null },
-  content: [{ type: "paragraph" }],
-});
-
-/** Pure transpose of a cell grid (rows ↔ columns). Exported for tests. */
-export function transposeCellGrid(grid: CellSnapshot[][]): CellSnapshot[][] {
-  if (grid.length === 0) return [];
-  const rowCount = grid.length;
-  const colCount = Math.max(...grid.map((r) => r.length));
-  const transposed: CellSnapshot[][] = [];
-  for (let c = 0; c < colCount; c++) {
-    const row: CellSnapshot[] = [];
-    for (let r = 0; r < rowCount; r++) {
-      row.push(grid[r][c] ?? emptyCell());
-    }
-    transposed.push(row);
-  }
-  return transposed;
-}
-
-/** Swap rows/columns of a TipTap table node in place. */
-export function transposeTableNode(editor: Editor, tablePos: number): boolean {
-  const { state } = editor;
-  const tableNode = state.doc.nodeAt(tablePos);
-  if (!tableNode || tableNode.type.name !== "table") return false;
-
-  const grid: CellSnapshot[][] = [];
-  tableNode.forEach((rowNode: ProseMirrorNode) => {
-    if (rowNode.type.name !== "tableRow") return;
-    const row: CellSnapshot[] = [];
-    rowNode.forEach((cellNode: ProseMirrorNode) => {
-      row.push({
-        type: cellNode.type.name,
-        attrs: {
-          ...cellNode.attrs,
-          // Merged cells cannot survive a transpose cleanly — flatten them.
-          colspan: 1,
-          rowspan: 1,
-          colwidth: null,
-        },
-        content: cellNode.content.toJSON() ?? [{ type: "paragraph" }],
-      });
-    });
-    if (row.length > 0) grid.push(row);
-  });
-
-  const transposed = transposeCellGrid(grid);
-  if (transposed.length === 0) return false;
-
-  let newTable: ProseMirrorNode;
-  try {
-    newTable = state.schema.nodeFromJSON({
-      type: "table",
-      attrs: tableNode.attrs,
-      content: transposed.map((cells) => ({ type: "tableRow", content: cells })),
-    });
-  } catch {
-    return false;
-  }
-
-  const tr = state.tr.replaceWith(tablePos, tablePos + tableNode.nodeSize, newTable);
-  tr.setSelection(TextSelection.near(tr.doc.resolve(Math.min(tablePos + 1, tr.doc.content.size))));
-  editor.view.dispatch(tr);
-  editor.view.focus();
-  return true;
-}
-
-export function TableNodeView({ node, deleteNode, editor, selected, getPos }: NodeViewProps) {
+export function TableNodeView({ node, updateAttributes, deleteNode, editor, selected, getPos }: NodeViewProps) {
   const [isCursorInside, setIsCursorInside] = useState(false);
   const [isHoveringToolbar, setIsHoveringToolbar] = useState(false);
   const [dragEnabled, setDragEnabled] = useState(false);
@@ -118,8 +44,7 @@ export function TableNodeView({ node, deleteNode, editor, selected, getPos }: No
     <NodeViewWrapper
       draggable={dragEnabled}
       data-id={node.attrs.id}
-      className={`my-6 group relative w-full transition ${active ? "z-100" : "z-10"} pl-12`}
-    >
+      className={`my-6 group relative w-full transition ${active ? "z-20" : "z-10"} pl-12`}>
       <div contentEditable={false} className="absolute left-0 top-0 bottom-0 w-8 flex flex-col items-center justify-center gap-2 z-70">
         <div
           data-drag-handle
@@ -153,9 +78,10 @@ export function TableNodeView({ node, deleteNode, editor, selected, getPos }: No
               attr="title"
               value={node.attrs.title || ""}
               placeholder="Table Title..."
-              required
-              missingMessage="Title is required for this table."
               className="bg-transparent border-none outline-none text-[12px] font-bold tracking-wider text-nb-on-surface-variant placeholder:text-nb-on-surface-variant/30 w-48"
+            />
+            <ValidationIssuesTooltip
+              errors={resourceMetaErrors(node.attrs.title, node.attrs.caption, "table")}
             />
             <GenerateButton
               label="Generate title"
@@ -257,8 +183,6 @@ export function TableNodeView({ node, deleteNode, editor, selected, getPos }: No
             attr="caption"
             value={node.attrs.caption || ""}
             placeholder="Describe this table..."
-            required
-            missingMessage="Caption is required for this table."
             multiline
             className="w-full bg-transparent border-none outline-none text-center text-xs font-medium italic text-nb-on-surface/50 group-hover/caption:text-nb-on-surface focus:text-nb-on-surface focus:opacity-100 transition-all leading-relaxed"
           />

@@ -1,0 +1,33 @@
+# Hot-reload overlay for Core / Collab (`tsx watch`).
+# See docs/04-guides/local-development.md — run website with `npm run dev` on the host.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build firebase gcs core collab compile
+#
+# Polling helps WSL2/Docker Desktop file-watch misses.
+services:
+  core:
+    volumes:
+      - ../services/core/src:/app/src
+      # Keep shared package in sync with host builds (schema/API exports).
+      - ../packages/shared:/app/node_modules/@engineering-notebook/shared
+    command: ["npm", "run", "dev"]
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+
+  collab:
+    volumes:
+      - ../services/collab/src:/app/src
+    command: ["npm", "run", "dev"]
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+
+  judge:
+    volumes:
+      - ../services/judge/app:/app/app
+    # uvicorn --reload for local Python hot-reload
+    command:
+      [
+        "sh",
+        "-c",
+        "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8091} --reload",
+      ]

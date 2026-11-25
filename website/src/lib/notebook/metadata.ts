@@ -1,3 +1,4 @@
+import { validateEntryMetadataFields } from "@engineering-notebook/shared";
 import { ASSETS_DIR, ASSETS_COMPRESSED_DIR, ASSETS_ORIGINAL_DIR, TYPE_LABELS, NOTEBOOK_VERSION } from "@/lib/constants";
 import { generateUUID } from "@/lib/utils";
 import { normalizeNotebookMetadata, mergeRecordById, parseAuthors, formatAuthors, entriesEqualForMerge } from "./notebookSchema";
@@ -29,40 +30,63 @@ export {
   authorsEqual,
 } from "./notebookSchema";
 
-export const getLocalDateString = () => {
-  const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
+export { getLocalDateString } from "@/lib/utils";
 
-const LAST_AUTHORS_KEY = "nb-last-authors";
-const LAST_AUTHOR_KEY = "nb-last-author";
+/** Local cache of Account → Preferences → default authors (synced via PATCH /users/me). */
+const DEFAULT_AUTHORS_KEY = "nb-pref-default-authors";
+/** @deprecated legacy keys — read once for migration, never write */
+const LEGACY_LAST_AUTHORS_KEY = "nb-last-authors";
+const LEGACY_LAST_AUTHOR_KEY = "nb-last-author";
 
-export function readLastAuthors(): string[] {
+export function readDefaultAuthors(): string[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = localStorage.getItem(LAST_AUTHORS_KEY);
+    const raw = localStorage.getItem(DEFAULT_AUTHORS_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) return parseAuthors(parsed);
     }
   } catch { /* ignore */ }
-  return parseAuthors(localStorage.getItem(LAST_AUTHOR_KEY));
+  // One-shot migrate from old "last used on entry" keys.
+  try {
+    const legacyArr = localStorage.getItem(LEGACY_LAST_AUTHORS_KEY);
+    if (legacyArr) {
+      const parsed = JSON.parse(legacyArr);
+      if (Array.isArray(parsed)) {
+        const clean = parseAuthors(parsed);
+        if (clean.length) writeDefaultAuthors(clean);
+        localStorage.removeItem(LEGACY_LAST_AUTHORS_KEY);
+        localStorage.removeItem(LEGACY_LAST_AUTHOR_KEY);
+        return clean;
+      }
+    }
+  } catch { /* ignore */ }
+  const legacyOne = parseAuthors(localStorage.getItem(LEGACY_LAST_AUTHOR_KEY));
+  if (legacyOne.length) {
+    writeDefaultAuthors(legacyOne);
+    localStorage.removeItem(LEGACY_LAST_AUTHOR_KEY);
+  }
+  return legacyOne;
 }
 
-export function writeLastAuthors(authors: string[]): void {
+export function writeDefaultAuthors(authors: string[]): void {
   if (typeof window === "undefined") return;
   const clean = parseAuthors(authors);
   if (clean.length === 0) {
-    localStorage.removeItem(LAST_AUTHORS_KEY);
-    localStorage.removeItem(LAST_AUTHOR_KEY);
+    localStorage.removeItem(DEFAULT_AUTHORS_KEY);
+    localStorage.removeItem(LEGACY_LAST_AUTHORS_KEY);
+    localStorage.removeItem(LEGACY_LAST_AUTHOR_KEY);
     return;
   }
-  localStorage.setItem(LAST_AUTHORS_KEY, JSON.stringify(clean));
-  localStorage.setItem(LAST_AUTHOR_KEY, formatAuthors(clean));
+  localStorage.setItem(DEFAULT_AUTHORS_KEY, JSON.stringify(clean));
+  localStorage.removeItem(LEGACY_LAST_AUTHORS_KEY);
+  localStorage.removeItem(LEGACY_LAST_AUTHOR_KEY);
 }
+
+/** @deprecated use readDefaultAuthors */
+export const readLastAuthors = readDefaultAuthors;
+/** @deprecated use writeDefaultAuthors */
+export const writeLastAuthors = writeDefaultAuthors;
 
 /**
  * metadata.ts — resource ↔ entry relationship tracking.
@@ -96,14 +120,17 @@ export interface EntryMetadata {
   createdAt: string;
   updatedAt: string;
   date: string; // YYYY-MM-DD
-  filename: string; // Path to the entry file (e.g. "data/entries/uuid.json")
+  filename: string; // Path to the entry file (e.g. "data/entry/uuid.json")
   order: number;
   isTemplate?: boolean; // When true, excluded from LaTeX entries.tex compilation and export
+  /** Omit from competition PDF while remaining in the explorer. */
+  hidden?: boolean;
   resources?: Record<string, { title: string, caption: string, type: string }>; // block uuid -> metadata
   isValid?: boolean;
   references?: string[]; // List of target UUIDs this entry points to
   assets?: string[]; // List of asset paths used in this entry
   validationErrors?: string[]; // Detailed messages for the UI
+  deletedAt?: string | null;
 }
 
 export interface TeamMember {
@@ -151,6 +178,8 @@ export interface ProjectPhase {
   iconName: string; // Lucide icon name
   color: string;    // Hex color
   order: number;
+  /** Soft-hide from pickers; entries may still reference the phase id. */
+  deletedAt?: string | null;
 }
 
 export interface NotebookMetadata {
@@ -493,21 +522,10 @@ export function validateEntry(
   phases: Identified<ProjectPhase>[] | Record<string, ProjectPhase>,
   existingIds: Set<string>
 ): string[] {
-  const errors: string[] = [];
-  const phaseIds = new Set(
-    Array.isArray(phases) ? phases.map(p => p.id) : Object.keys(phases || {})
-  );
-
-  if (!entry.title?.trim()) errors.push("Entry title is required.");
-
-  // Templates are exempt from author, date, and phase requirements
-  if (!entry.isTemplate) {
-    if (!entry.authors?.some((name) => name.trim())) errors.push("Author name is required.");
-    if (!entry.date?.trim()) errors.push("Date is required.");
-    if (!entry.phase || !phaseIds.has(entry.phase)) {
-      errors.push("Entry phase is required.");
-    }
-  }
+  const phaseMap = Array.isArray(phases)
+    ? Object.fromEntries(phases.map((p) => [p.id, p]))
+    : phases || {};
+  const errors = validateEntryMetadataFields(entry, phaseMap);
 
   // Check local resources (applies to both entries and templates)
   if (entry.resources) {
@@ -535,7 +553,6 @@ export function isEntryValid(info: EntryMetadata): boolean {
   if (!info.isTemplate) {
     if (!info.authors?.some((name) => name.trim())) return false;
     if (!info.date?.trim()) return false;
-    if (!info.phase) return false;
   }
   if (info.resources) {
     for (const res of Object.values(info.resources)) {

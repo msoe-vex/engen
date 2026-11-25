@@ -8,8 +8,11 @@ import {
 import type { TiptapEditor } from "@/lib/types";
 import { NodeSelection, Transaction, EditorState, Plugin } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
-import { store } from "@/lib/store";
-import { useWorkspace } from "@/hooks/useWorkspace";
+import Collaboration from "@tiptap/extension-collaboration";
+import CollaborationCaret from "@tiptap/extension-collaboration-caret";
+import type { Doc as YDoc } from "yjs";
+import { workspaceState } from "@/lib/cloud/workspaceState";
+import { useCloudWorkspace } from "@/hooks/useCloudWorkspace";
 import { events, EventNames } from "@/lib/events";
 import { TableRow } from "@tiptap/extension-table-row";
 import {
@@ -19,6 +22,7 @@ import {
   IdRemapper,
   CustomHeading,
   NotebookDocAttrs,
+  CommentAnchor,
 } from "@/lib/editor/extensions";
 import { Color } from "@tiptap/extension-color";
 import { TextStyle } from "@tiptap/extension-text-style";
@@ -75,21 +79,40 @@ const CustomSubscript = Subscript.extend({
    ───────────────────────────────────────────────────────────────── */
 
 interface RichTextAreaProps {
-  content: string | TipTapNode;
-  onChange: (content: string) => void;
+  content?: string | TipTapNode;
+  onChange?: (content: string) => void;
   onImageUpload?: (path: string, base64: string) => void;
   author?: string;
   filename: string;
   onEditorInit?: (editor: TiptapEditor) => void;
   onToggleLink?: (fn: () => void) => void;
   entryId?: string;
+  /** When set, TipTap syncs via Yjs (Hocuspocus) instead of local content/onChange. */
+  collaborationDoc?: YDoc;
+  collaborationField?: string;
+  /** Hocuspocus (or compatible) provider — required with CollaborationCaret. */
+  collaborationProvider?: { awareness: unknown } | null;
+  collaborationUser?: { name: string; color: string };
+  editable?: boolean;
 }
 
 const RichTextArea = ({
-  content, onChange, onImageUpload, filename, onEditorInit, onToggleLink, entryId
+  content,
+  onChange,
+  onImageUpload,
+  filename,
+  onEditorInit,
+  onToggleLink,
+  entryId,
+  collaborationDoc,
+  collaborationField = "default",
+  collaborationProvider,
+  collaborationUser,
+  editable = true,
 }: RichTextAreaProps) => {
-  const { currentProjectId, metadata } = useWorkspace();
-  const dbName = currentProjectId ? `notebook-project-${currentProjectId}` : "notebook-default";
+  const { metadata } = useCloudWorkspace();
+  const dbName = "notebook-cloud";
+  const isCollab = Boolean(collaborationDoc);
 
   const [, setSelectionUpdate] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
@@ -111,6 +134,7 @@ const RichTextArea = ({
       bulletList: false,
       orderedList: false,
       heading: false,
+      undoRedo: isCollab ? false : undefined,
       dropcursor: {
         color: '#d9282f',
         width: 3,
@@ -120,6 +144,7 @@ const RichTextArea = ({
     NotebookDocAttrs,
     NotebookListItem,
     Highlight.configure({ multicolor: true }),
+    CommentAnchor,
     CustomSuperscript,
     CustomSubscript,
     ImageWithCaption.configure({ inline: false, allowBase64: true, dbName }),
@@ -392,9 +417,46 @@ const RichTextArea = ({
       ]
     }),
     IdRemapper,
+    ...(collaborationDoc
+      ? [
+          Collaboration.configure({
+            document: collaborationDoc,
+            field: collaborationField,
+          }),
+          ...(collaborationProvider
+            ? [
+                CollaborationCaret.configure({
+                  provider: collaborationProvider,
+                  user: collaborationUser || { name: "Editor", color: "#2563eb" },
+                  render: (user) => {
+                    const cursor = document.createElement("span");
+                    cursor.classList.add("collaboration-carets__caret");
+                    cursor.setAttribute("style", `border-color: ${user.color}`);
+                    cursor.setAttribute("title", String(user.name || "Editor"));
+
+                    const label = document.createElement("div");
+                    label.classList.add("collaboration-carets__label");
+                    label.setAttribute("style", `background-color: ${user.color}`);
+                    label.appendChild(document.createTextNode(String(user.name || "Editor")));
+                    cursor.appendChild(label);
+                    return cursor;
+                  },
+                  selectionRender: (user) => ({
+                    nodeName: "span",
+                    class: "collaboration-carets__selection",
+                    style: `background-color: ${user.color}33`,
+                    "data-user": String(user.name || ""),
+                    title: String(user.name || ""),
+                  }),
+                }),
+              ]
+            : []),
+        ]
+      : []),
   ];
 
-  const parseContent = (raw: string | TipTapNode) => {
+  const parseContent = (raw: string | TipTapNode | undefined) => {
+    if (raw === undefined || raw === null) return "";
     if (!raw) return "";
     try {
       const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
@@ -461,15 +523,10 @@ const RichTextArea = ({
         originalFilePath: originalPath,
       };
 
-      // Populate in-memory asset cache synchronously (0ms) so ImageNodeView finds it immediately
-      store.assetCache.set(originalPath, dataUrl);
-      store.assetCache.set(newPath, compressed.dataUrl);
-
-      // Persist both original and compressed assets in background
-      store.enqueue(async () => {
-        await store.persistFile(originalPath, originalBase64, `Original Asset: ${originalPath}`, true);
-        await store.persistFile(newPath, compressed.base64, `Compressed Asset: ${newPath}`, true);
-      });
+      // Populate in-memory asset cache synchronously so ImageNodeView finds it immediately.
+      // Cloud collab uploads via onImageUpload; cache is preview-only.
+      workspaceState.assetCache.set(originalPath, dataUrl);
+      workspaceState.assetCache.set(newPath, compressed.dataUrl);
 
       if (editor?.state.selection instanceof NodeSelection) {
         editor.chain().focus().insertContentAt(editor.state.selection.to, {
@@ -505,16 +562,16 @@ const RichTextArea = ({
 
   const editor = useEditor({
     immediatelyRender: false,
+    editable,
     extensions,
-    content: parseContent(content),
-    onCreate: ({ editor: created }) => {
-      // Style existing links once before we start treating updates as user edits.
-      created.view.dispatch(created.state.tr.setMeta("styleLinks", true));
+    ...(isCollab ? {} : { content: parseContent(content) }),
+    onCreate: () => {
       requestAnimationFrame(() => {
         allowUpdateRef.current = true;
       });
     },
     onUpdate: ({ editor }) => {
+      if (isCollab || !onChange) return;
       if (!allowUpdateRef.current) return;
       onChange(JSON.stringify(editor.getJSON()));
     },
@@ -525,7 +582,15 @@ const RichTextArea = ({
       setSelectionUpdate(s => s + 1);
     },
     editorProps: {
-      attributes: { class: "focus:outline-none min-h-[800px] h-full max-w-5xl mx-auto p-4 lg:p-6 cursor-text" },
+      attributes: {
+        class: isCollab
+          ? `focus:outline-none min-h-[320px] h-full max-w-none p-2 text-neutral-900 ${
+              editable ? "cursor-text" : "cursor-default"
+            }`
+          : `focus:outline-none min-h-[800px] h-full max-w-5xl mx-auto p-4 lg:p-6 ${
+              editable ? "cursor-text" : "cursor-default"
+            }`,
+      },
       handleDOMEvents: {
         mousedown: (view, event) => {
           if (event.ctrlKey || event.metaKey) {
@@ -571,7 +636,7 @@ const RichTextArea = ({
                   if (!isLinkingToEntry) {
                     navParams.resource = resId;
                   }
-                  store.navigateTo(navParams);
+                  workspaceState.navigateTo(navParams);
                 } else {
                   // Already in the same resource, but user clicked again: re-scroll
                   events.emit(EventNames.SCROLL_TO_RESOURCE, resId);
@@ -633,13 +698,19 @@ const RichTextArea = ({
         return false;
       },
     },
-  });
+  }, isCollab ? [collaborationDoc, collaborationField] : undefined);
 
   useEffect(() => {
     if (editor && onEditorInit) {
       onEditorInit(editor);
     }
   }, [editor, onEditorInit]);
+
+  useEffect(() => {
+    if (editor && !editor.isDestroyed && editor.isEditable !== editable) {
+      editor.setEditable(editable);
+    }
+  }, [editor, editable]);
 
   // Trigger a re-validation of links when metadata changes
   useEffect(() => {

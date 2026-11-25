@@ -5,7 +5,9 @@ import { GripVertical, Trash2, Sigma, Edit3 } from "lucide-react";
 import katex from "katex";
 import "katex/dist/katex.min.css";
 import { generateUUID } from "../../../lib/utils";
+import { ValidationIssuesTooltip } from "@/components/ui";
 import { NodeViewInput } from "./NodeViewInput";
+import { resourceMetaErrors } from "./resourceValidation";
 import GenerateButton from "../ui/GenerateButton";
 import { generateResourceCaption, generateResourceTitle } from "@/lib/genai";
 import { patchNodeViewAttrs } from "./patchNodeViewAttrs";
@@ -89,7 +91,7 @@ export function MathBlockNodeView({ node, updateAttributes, deleteNode, editor, 
     <NodeViewWrapper
       draggable={dragEnabled}
       data-id={node.attrs.id}
-      className={`my-6 group relative w-full transition ${active ? 'z-100' : 'z-10'} pl-12`}>
+      className={`my-6 group relative w-full transition ${active ? "z-20" : "z-10"} pl-12`}>
 
       {/* Side Toolbar */}
       <div contentEditable={false} className="absolute left-0 top-0 bottom-0 w-8 flex flex-col items-center justify-center gap-2 z-70">
@@ -126,9 +128,10 @@ export function MathBlockNodeView({ node, updateAttributes, deleteNode, editor, 
               attr="title"
               value={node.attrs.title || ""}
               placeholder="Equation Title..."
-              required
-              missingMessage="Title is required for this equation."
               className="flex-1 bg-transparent border-none outline-none text-[12px] font-bold tracking-wider text-nb-on-surface-variant placeholder:text-nb-on-surface-variant/30"
+            />
+            <ValidationIssuesTooltip
+              errors={resourceMetaErrors(node.attrs.title, node.attrs.caption, "equation")}
             />
             <GenerateButton
               label="Generate title"
@@ -233,8 +236,6 @@ export function MathBlockNodeView({ node, updateAttributes, deleteNode, editor, 
             attr="caption"
             value={node.attrs.caption || ""}
             placeholder="Add a caption to this equation..."
-            required
-            missingMessage="Caption is required for this equation."
             multiline
             className="w-full bg-transparent border-none outline-none text-center text-xs font-medium italic text-nb-on-surface/50 group-hover/caption:text-nb-on-surface focus:text-nb-on-surface focus:opacity-100 transition-all leading-relaxed"
           />

@@ -163,7 +163,8 @@ export const convertNodeToLatex = (node: TipTapNode, resourceTypes?: Record<stri
     case "text": {
       let t = escapeLaTeX(node.text ?? "");
 
-      const marks = node.marks || [];
+      // Ignore commentAnchor (and any future non-export marks) — thread text is MetadataStore-only.
+      const marks = (node.marks || []).filter((m) => m.type !== "commentAnchor");
       const hasBold = marks.some(m => m.type === "bold");
       const hasItalic = marks.some(m => m.type === "italic");
       const hasCode = marks.some(m => m.type === "code");
@@ -404,7 +405,7 @@ export const generateAllEntriesLatex = (metadata: { entries: Record<string, Entr
   const entries = sortedEntries(metadata.entries).filter(entry => !entry.isTemplate);
 
   return entries
-    .map(entry => `\\input{${prefix}latex/entries/${entry.id}.tex}`)
+    .map(entry => `\\input{${prefix}latex/entry/${entry.id}.tex}`)
     .join("\n") + "\n";
 };
 
