@@ -3,9 +3,9 @@ WORKDIR /app
 COPY packages/shared ./packages/shared
 COPY website/package.json website/package-lock.json* ./website/
 WORKDIR /app/packages/shared
-RUN npm install && npm run build
+RUN npm ci && npm run build
 WORKDIR /app/website
-RUN npm install \
+RUN npm ci \
   && mkdir -p node_modules/@engineering-notebook \
   && rm -rf node_modules/@engineering-notebook/shared \
   && cp -R /app/packages/shared node_modules/@engineering-notebook/shared
