@@ -42,10 +42,12 @@ class MemoryMetadataStore implements MetadataStore {
     this.docs.delete(path);
   }
 
-  async list(collectionPath: string): Promise<MetadataDoc[]> {
+  async query(collectionPath: string, opts?: { where?: [string, string, unknown][]; limit?: number }): Promise<MetadataDoc[]> {
     const res: MetadataDoc[] = [];
     for (const [k, v] of this.docs.entries()) {
-      if (k.startsWith(collectionPath)) res.push({ ...v });
+      if (k.startsWith(collectionPath)) {
+        res.push({ ...v });
+      }
     }
     return res;
   }

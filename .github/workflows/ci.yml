@@ -20,22 +20,22 @@ jobs:
       - name: Typecheck, lint & test website
         run: |
           npm --prefix website ci
-          npx tsc --project website/tsconfig.json --noEmit
+          npm --prefix website exec tsc -- --project website/tsconfig.json --noEmit
           npm --prefix website run lint
           npm --prefix website test
 
       - name: Typecheck & test core
         run: |
           npm --prefix services/core ci
-          npx tsc --project services/core/tsconfig.json --noEmit
+          npm --prefix packages/shared exec tsc -- --project services/core/tsconfig.json --noEmit
           npm --prefix services/core test
 
       - name: Typecheck collab
         run: |
           npm --prefix services/collab ci
-          npx tsc --project services/collab/tsconfig.json --noEmit
+          npm --prefix packages/shared exec tsc -- --project services/collab/tsconfig.json --noEmit
 
       - name: Typecheck compile
         run: |
           npm --prefix services/compile ci
-          npx tsc --project services/compile/tsconfig.json --noEmit
+          npm --prefix packages/shared exec tsc -- --project services/compile/tsconfig.json --noEmit
