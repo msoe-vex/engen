@@ -116,7 +116,9 @@ export default function NotebookContributorsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    setLoaded(false);
+    queueMicrotask(() => {
+      if (!cancelled) setLoaded(false);
+    });
     void (async () => {
       try {
         const people = await cloudApi.listMembers(orgId);

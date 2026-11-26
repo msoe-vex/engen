@@ -90,3 +90,7 @@ export function getMetadataStore(): MetadataStore {
   if (!store) store = new FirestoreMetadataStore();
   return store;
 }
+
+export function setMetadataStore(customStore: MetadataStore | null): void {
+  store = customStore;
+}

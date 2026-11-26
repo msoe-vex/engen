@@ -153,7 +153,7 @@ export function AppChrome({ children, title }: { children: ReactNode; title?: st
           }
         : null;
 
-      setUser(u as any);
+      setUser(u);
       if (u || getDevToken()) {
         try {
           const p = (await cloudApi.bootstrap({
@@ -336,11 +336,15 @@ export function AppChrome({ children, title }: { children: ReactNode; title?: st
     const params = new URLSearchParams(window.location.search);
     const authError = params.get("error");
     if (authError === "account_not_linked") {
-      setError(
-        "An account with that email already exists. Sign in with your original method, then link this provider from Account Settings."
-      );
+      queueMicrotask(() => {
+        setError(
+          "An account with that email already exists. Sign in with your original method, then link this provider from Account Settings."
+        );
+      });
     } else if (authError) {
-      setError(`Sign-in failed (${authError}). Please try again.`);
+      queueMicrotask(() => {
+        setError(`Sign-in failed (${authError}). Please try again.`);
+      });
     }
   }, []);
 

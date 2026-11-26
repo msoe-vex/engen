@@ -29,7 +29,9 @@ export default function TextPromptDialog({
   const [value, setValue] = useState(initialValue);
 
   useEffect(() => {
-    if (isOpen) setValue(initialValue);
+    if (isOpen) {
+      queueMicrotask(() => setValue(initialValue));
+    }
   }, [isOpen, initialValue]);
 
   return (

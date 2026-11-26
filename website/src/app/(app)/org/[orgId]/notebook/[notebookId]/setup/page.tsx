@@ -58,15 +58,17 @@ export default function NotebookSetupPage() {
 
 
   useEffect(() => {
-    setTitle(notebookSummary?.title || notebookSummary?.name || "");
-    setSubtitle(notebookSummary?.subtitle || "");
-    setName(notebookSummary?.name || "");
-    setLogoAssetId(notebookSummary?.logoAssetId);
-    setPhases((notebookSummary?.phases as Record<string, ProjectPhase>) || {});
-    const access = notebookSummary?.access;
-    setAccessMode(access?.mode === "restricted" ? "restricted" : "org");
-    setTeamIds(access?.teamIds ?? []);
-    setUserIds(access?.userIds ?? []);
+    queueMicrotask(() => {
+      setTitle(notebookSummary?.title || notebookSummary?.name || "");
+      setSubtitle(notebookSummary?.subtitle || "");
+      setName(notebookSummary?.name || "");
+      setLogoAssetId(notebookSummary?.logoAssetId);
+      setPhases((notebookSummary?.phases as Record<string, ProjectPhase>) || {});
+      const access = notebookSummary?.access;
+      setAccessMode(access?.mode === "restricted" ? "restricted" : "org");
+      setTeamIds(access?.teamIds ?? []);
+      setUserIds(access?.userIds ?? []);
+    });
   }, [notebookSummary]);
 
   const initialTitle = notebookSummary?.title || notebookSummary?.name || "";
@@ -143,7 +145,7 @@ export default function NotebookSetupPage() {
 
   useEffect(() => {
     if (!logoAssetId) {
-      setLogoPreview(null);
+      queueMicrotask(() => setLogoPreview(null));
       return;
     }
     let cancelled = false;
@@ -161,15 +163,23 @@ export default function NotebookSetupPage() {
   }, [orgId, notebookId, logoAssetId]);
 
   useEffect(() => {
-    setAclListsLoaded(false);
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) setAclListsLoaded(false);
+    });
     void Promise.all([
       cloudApi.listTeams(orgId).catch(() => [] as TeamSummary[]),
       cloudApi.listMembers(orgId).catch(() => [] as MemberSummary[]),
     ]).then(([t, m]) => {
-      setTeams(t);
-      setPeople(m);
-      setAclListsLoaded(true);
+      if (!cancelled) {
+        setTeams(t);
+        setPeople(m);
+        setAclListsLoaded(true);
+      }
     });
+    return () => {
+      cancelled = true;
+    };
   }, [orgId]);
 
   async function uploadLogo(file: File) {

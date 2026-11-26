@@ -15,11 +15,20 @@ export function MenuList({
   onItemSelect: (item: MenuItem) => void;
   itemRefs?: MutableRefObject<(HTMLButtonElement | null)[]>;
 }) {
-  let actionIndex = -1;
+  const actionIndices: number[] = [];
+  let counter = 0;
+  for (const item of items) {
+    if (item.separator) {
+      actionIndices.push(-1);
+    } else {
+      actionIndices.push(counter);
+      counter++;
+    }
+  }
 
   return (
     <>
-      {items.map((item) => {
+      {items.map((item, itemIdx) => {
         if (item.separator) {
           return (
             <div
@@ -29,8 +38,7 @@ export function MenuList({
             />
           );
         }
-        actionIndex += 1;
-        const idx = actionIndex;
+        const idx = actionIndices[itemIdx];
         return (
           <button
             key={item.id}

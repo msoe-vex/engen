@@ -75,7 +75,6 @@ export default function AccountProfilePage() {
     void refreshProfile();
 
     if (session?.user) {
-      setAccountsLoading(true);
       void authClient
         .listAccounts()
         .then((res) => {
@@ -88,7 +87,9 @@ export default function AccountProfilePage() {
           if (!cancelled) setAccountsLoading(false);
         });
     } else {
-      setAccountsLoading(false);
+      queueMicrotask(() => {
+        if (!cancelled) setAccountsLoading(false);
+      });
     }
 
     return () => {

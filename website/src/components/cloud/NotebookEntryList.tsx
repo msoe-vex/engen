@@ -966,9 +966,11 @@ export function NotebookEntryList({
 
   useEffect(() => {
     const loaded = loadExplorerFilters(notebookId);
-    setFiltersOpen(loaded.filtersOpen);
-    setFilters(loaded.filters);
-    setSortMode(loaded.sortMode);
+    queueMicrotask(() => {
+      setFiltersOpen(loaded.filtersOpen);
+      setFilters(loaded.filters);
+      setSortMode(loaded.sortMode);
+    });
   }, [notebookId]);
 
   useEffect(() => {
@@ -1017,7 +1019,7 @@ export function NotebookEntryList({
   useEffect(() => {
     const raw = query.trim();
     if (raw.length < 2) {
-      setBodyHitIds(new Set());
+      queueMicrotask(() => setBodyHitIds(new Set()));
       return;
     }
     let cancelled = false;
@@ -2012,6 +2014,8 @@ export function NotebookEntryList({
     return <>{nodes}</>;
   }
 
+  const sensors = useAppDndSensors();
+
   if (collapsed) {
     return (
       <NotebookSideRailCollapsedStrip
@@ -2021,8 +2025,6 @@ export function NotebookEntryList({
       />
     );
   }
-
-  const sensors = useAppDndSensors();
 
   return (
     <aside className="flex h-full w-full min-w-0 flex-col border-r border-nb-outline-variant/30 bg-nb-surface-low">

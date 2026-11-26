@@ -1,8 +1,8 @@
-name: CI (Lint, Typecheck & Tests)
+name: CI (Lint & Typecheck)
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, dev]
 
 jobs:
   verify:
@@ -17,13 +17,25 @@ jobs:
       - name: Install & build shared
         run: npm --prefix packages/shared ci && npm --prefix packages/shared run build
 
-      - name: Typecheck & lint website
+      - name: Typecheck, lint & test website
         run: |
           npm --prefix website ci
-          npx tsc --project website/tsconfig.json --noEmit
+          npm --prefix website exec tsc -- --project website/tsconfig.json --noEmit
           npm --prefix website run lint
+          npm --prefix website test
 
       - name: Typecheck & test core
         run: |
           npm --prefix services/core ci
-          npx tsc --project services/core/tsconfig.json --noEmit
+          npm --prefix packages/shared exec tsc -- --project services/core/tsconfig.json --noEmit
+          npm --prefix services/core test
+
+      - name: Typecheck collab
+        run: |
+          npm --prefix services/collab ci
+          npm --prefix packages/shared exec tsc -- --project services/collab/tsconfig.json --noEmit
+
+      - name: Typecheck compile
+        run: |
+          npm --prefix services/compile ci
+          npm --prefix packages/shared exec tsc -- --project services/compile/tsconfig.json --noEmit

@@ -60,8 +60,10 @@ export function ShareNotebookDialog({
 
     // Load teams & people allowlist options
     if (propTeams && propPeople) {
-      setTeams(propTeams);
-      setPeople(propPeople);
+      queueMicrotask(() => {
+        setTeams(propTeams);
+        setPeople(propPeople);
+      });
     } else {
       void Promise.all([
         cloudApi.listTeams(effectiveOrgId).catch(() => [] as TeamSummary[]),
@@ -76,14 +78,18 @@ export function ShareNotebookDialog({
 
     // Set initial access state
     if (propInitialAccess) {
-      setAccessMode(propInitialAccess.mode === "restricted" ? "restricted" : "org");
-      setTeamIds(propInitialAccess.teamIds || []);
-      setUserIds(propInitialAccess.userIds || []);
+      queueMicrotask(() => {
+        setAccessMode(propInitialAccess.mode === "restricted" ? "restricted" : "org");
+        setTeamIds(propInitialAccess.teamIds || []);
+        setUserIds(propInitialAccess.userIds || []);
+      });
     } else if (workspace?.notebookSummary?.access) {
       const a = workspace.notebookSummary.access;
-      setAccessMode(a.mode === "restricted" ? "restricted" : "org");
-      setTeamIds(a.teamIds || []);
-      setUserIds(a.userIds || []);
+      queueMicrotask(() => {
+        setAccessMode(a.mode === "restricted" ? "restricted" : "org");
+        setTeamIds(a.teamIds || []);
+        setUserIds(a.userIds || []);
+      });
     } else if (effectiveNotebookId) {
       void cloudApi
         .getNotebook(effectiveOrgId, effectiveNotebookId)

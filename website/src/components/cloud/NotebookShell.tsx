@@ -147,11 +147,13 @@ export function NotebookShell({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!optimisticEntryId) return;
     if (activeEntryId === optimisticEntryId) {
-      setOptimisticEntryId(null);
+      queueMicrotask(() => setOptimisticEntryId(null));
       return;
     }
     // Left the entries section without landing on the optimistic id.
-    if (!pathname.includes("/entry/")) setOptimisticEntryId(null);
+    if (!pathname.includes("/entry/")) {
+      queueMicrotask(() => setOptimisticEntryId(null));
+    }
   }, [activeEntryId, optimisticEntryId, pathname]);
   const showEntryList = SUBNAV[0].match(pathname || "");
   /** Calendar + compile need a definite height so the main pane fills (not content-sized scroll). */
@@ -223,8 +225,10 @@ export function NotebookShell({ children }: { children: ReactNode }) {
 
   // Hard reset chrome only when switching notebooks (not on soft refresh / SSE).
   useEffect(() => {
-    setInitialLoaded(false);
-    setNotebookUnavailable(false);
+    queueMicrotask(() => {
+      setInitialLoaded(false);
+      setNotebookUnavailable(false);
+    });
   }, [orgId, notebookId]);
 
   const orgMetaCacheRef = useRef<{ orgId: string; name?: string; role?: string | null } | null>(
@@ -668,9 +672,15 @@ export function NotebookShell({ children }: { children: ReactNode }) {
   }
 
   const exportZipRef = useRef(handleExportZip);
-  exportZipRef.current = handleExportZip;
   const busyRef = useRef(busy);
-  busyRef.current = busy;
+
+  useEffect(() => {
+    exportZipRef.current = handleExportZip;
+  }, [handleExportZip]);
+
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
 
   const activeNav = SUBNAV.find((t) => t.match(pathname || ""))?.id ?? "entries";
 
@@ -699,7 +709,9 @@ export function NotebookShell({ children }: { children: ReactNode }) {
 
   // Close drawer when opening an entry (legacy mobile behavior).
   useEffect(() => {
-    if (narrow && activeEntryId) setMobileExplorerOpen(false);
+    if (narrow && activeEntryId) {
+      queueMicrotask(() => setMobileExplorerOpen(false));
+    }
   }, [narrow, activeEntryId]);
 
   useEffect(() => {

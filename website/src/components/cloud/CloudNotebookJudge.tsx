@@ -96,8 +96,19 @@ export function CloudNotebookJudge() {
   }, [orgId, notebookId]);
 
   useEffect(() => {
-    setListsReady(false);
-    void refreshLists().catch((err) => setError((err as Error).message));
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) setListsReady(false);
+    });
+    const timer = setTimeout(() => {
+      void refreshLists().catch((err) => {
+        if (!cancelled) setError((err as Error).message);
+      });
+    }, 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [orgId, notebookId, refreshLists, setError]);
 
   useEffect(() => {

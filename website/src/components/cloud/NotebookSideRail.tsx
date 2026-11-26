@@ -13,12 +13,15 @@ export function usePersistedCollapsed(storageKey: string, initial = false) {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(storageKey);
-      if (raw === "1") setCollapsed(true);
-      else if (raw === "0") setCollapsed(false);
+      if (raw === "1") {
+        queueMicrotask(() => setCollapsed(true));
+      } else if (raw === "0") {
+        queueMicrotask(() => setCollapsed(false));
+      }
     } catch {
       /* ignore */
     }
-    setHydrated(true);
+    queueMicrotask(() => setHydrated(true));
   }, [storageKey]);
 
   useEffect(() => {
@@ -47,12 +50,13 @@ function usePersistedWidthPx(
       const raw = localStorage.getItem(storageKey);
       const n = raw ? Number(raw) : NaN;
       if (Number.isFinite(n)) {
-        setWidth(Math.min(maxWidth, Math.max(minWidth, n)));
+        const val = Math.min(maxWidth, Math.max(minWidth, n));
+        queueMicrotask(() => setWidth(val));
       }
     } catch {
       /* ignore */
     }
-    setHydrated(true);
+    queueMicrotask(() => setHydrated(true));
   }, [storageKey, minWidth, maxWidth]);
 
   useEffect(() => {

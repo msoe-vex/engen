@@ -1,11 +1,11 @@
 FROM node:22-alpine AS build
 WORKDIR /app
 COPY packages/shared ./packages/shared
-COPY services/core/package.json ./services/core/package.json
+COPY services/core/package*.json ./services/core/
 WORKDIR /app/packages/shared
-RUN npm install && npm run build
+RUN npm ci && npm run build
 WORKDIR /app/services/core
-RUN npm install --install-links=false \
+RUN npm ci --install-links=false \
   && mkdir -p node_modules/@engineering-notebook \
   && rm -rf node_modules/@engineering-notebook/shared \
   && cp -R /app/packages/shared node_modules/@engineering-notebook/shared

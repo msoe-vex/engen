@@ -16,8 +16,8 @@ RUN apt-get update \
 
 WORKDIR /app
 
-COPY services/compile/package.json ./
-RUN npm install --omit=dev
+COPY services/compile/package*.json ./
+RUN npm ci --omit=dev
 
 COPY services/compile/tsconfig.json ./
 COPY services/compile/src ./src

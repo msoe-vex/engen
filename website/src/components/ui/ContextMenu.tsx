@@ -28,14 +28,15 @@ export function ContextMenu({
   const [pos, setPos] = useState({ top: y, left: x });
   const [activeIndex, setActiveIndex] = useState(0);
   const activeIndexRef = useRef(0);
-  activeIndexRef.current = activeIndex;
   const itemsRef = useRef(items);
-  itemsRef.current = items;
+
+  useLayoutEffect(() => {
+    activeIndexRef.current = activeIndex;
+    itemsRef.current = items;
+  }, [activeIndex, items]);
 
   useLayoutEffect(() => {
     if (!open) return;
-    setPos({ top: y, left: x });
-    setActiveIndex(0);
     const el = menuRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
@@ -58,6 +59,7 @@ export function ContextMenu({
       left = Math.max(viewLeft + MENU_PAD, left);
     }
     setPos({ top, left });
+    setActiveIndex(0);
   }, [open, x, y, items]);
 
   useEffect(() => {

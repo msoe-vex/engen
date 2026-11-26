@@ -1,6 +1,6 @@
 import type { MetadataStore, MetadataWhere, MetadataWhereOp } from "@engineering-notebook/shared";
 import { createAdapterFactory } from "@better-auth/core/db/adapter";
-import type { CleanedWhere, CustomAdapter } from "@better-auth/core/db/adapter";
+import type { CleanedWhere, CustomAdapter, ModelTarget } from "@better-auth/core/db/adapter";
 
 function mapOp(operator: string): MetadataWhereOp {
   switch (operator) {
@@ -101,13 +101,13 @@ export const metadataStoreAdapter = (store: MetadataStore) => {
         return record;
       },
 
-      async findOne({ model, where }) {
+      async findOne<T>({ model, where }: ModelTarget & { where: CleanedWhere[] }): Promise<T | null> {
         const idClause = where.find((w) => w.field === "id");
         if (idClause && (!idClause.operator || idClause.operator === "eq")) {
           const doc = await store.get(`${model}/${String(idClause.value)}`);
           if (!doc) return null;
           if (!matchInProcess(doc, where)) return null;
-          return doc as any;
+          return doc as unknown as T;
         }
 
         const storeWheres: MetadataWhere[] = where
@@ -125,18 +125,27 @@ export const metadataStoreAdapter = (store: MetadataStore) => {
 
         for (const row of results) {
           if (matchInProcess(row, where)) {
-            return row as any;
+            return row as unknown as T;
           }
         }
         return null;
       },
 
-      async findMany({ model, where, limit, sortBy }) {
+      async findMany<T>({
+        model,
+        where,
+        limit,
+        sortBy,
+      }: ModelTarget & {
+        where?: CleanedWhere[];
+        limit?: number;
+        sortBy?: { field: string; direction: "asc" | "desc" };
+      }): Promise<T[]> {
         const idClause = (where || []).find((w) => w.field === "id");
         if (idClause && (!idClause.operator || idClause.operator === "eq")) {
           const doc = await store.get(`${model}/${String(idClause.value)}`);
           if (!doc || !matchInProcess(doc, where || [])) return [];
-          return [doc as any];
+          return [doc as unknown as T];
         }
 
         const storeWheres: MetadataWhere[] = (where || [])
@@ -157,26 +166,33 @@ export const metadataStoreAdapter = (store: MetadataStore) => {
         if (limit && limit > 0) {
           filtered = filtered.slice(0, limit);
         }
-        return filtered as any[];
+        return filtered as unknown as T[];
       },
 
-      async update({ model, where, update: updates }) {
+      async update<T>({
+        model,
+        where,
+        update: updates,
+      }: ModelTarget & {
+        where: CleanedWhere[];
+        update: T;
+      }): Promise<T | null> {
         const idClause = where.find((w) => w.field === "id");
         if (idClause && idClause.operator === "eq") {
           const docPath = `${model}/${String(idClause.value)}`;
           const existing = await store.get(docPath);
           if (!existing || !matchInProcess(existing, where)) return null;
-          const merged = { ...existing, ...updates, id: existing.id };
+          const merged = { ...existing, ...(updates as Record<string, unknown>), id: existing.id };
           await store.update(docPath, updates as Record<string, unknown>);
-          return merged as any;
+          return merged as unknown as T;
         }
 
-        const target = await this.findOne({ model, where });
+        const target = await this.findOne<Record<string, unknown>>({ model, where });
         if (!target) return null;
         const id = String((target as Record<string, unknown>).id);
         const docPath = `${model}/${id}`;
         await store.update(docPath, updates as Record<string, unknown>);
-        return { ...(target as Record<string, unknown>), ...updates, id } as any;
+        return { ...(target as Record<string, unknown>), ...(updates as Record<string, unknown>), id } as unknown as T;
       },
 
       async updateMany({ model, where, update: updates }) {

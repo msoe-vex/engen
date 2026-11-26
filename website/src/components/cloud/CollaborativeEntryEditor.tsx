@@ -75,9 +75,15 @@ export function CollaborativeEntryEditor({
   const [editor, setEditor] = useState<TiptapEditor | null>(null);
   const providerRef = useRef<HocuspocusProvider | null>(null);
   const getTokenRef = useRef(getToken);
-  getTokenRef.current = getToken;
   const editorRef = useRef<TiptapEditor | null>(null);
-  editorRef.current = editor;
+
+  useEffect(() => {
+    getTokenRef.current = getToken;
+  }, [getToken]);
+
+  useEffect(() => {
+    editorRef.current = editor;
+  }, [editor]);
   const lastTipTapMirrorRef = useRef("");
 
   const [localUser, setLocalUser] = useState<{ name: string; color: string } | null>(null);
@@ -188,10 +194,21 @@ export function CollaborativeEntryEditor({
   }, [documentName, ydoc]);
 
   const entriesRef = useRef(entries);
-  entriesRef.current = entries;
   const phasesRef = useRef(notebookSummary?.phases);
-  phasesRef.current = notebookSummary?.phases;
-  const lastQualityRef = useRef("");
+  const onDocChangeRef = useRef(onDocChange);
+
+  useEffect(() => {
+    entriesRef.current = entries;
+  }, [entries]);
+
+  useEffect(() => {
+    phasesRef.current = notebookSummary?.phases;
+  }, [notebookSummary?.phases]);
+
+  useEffect(() => {
+    onDocChangeRef.current = onDocChange;
+  }, [onDocChange]);
+
   const metaFingerprint = [
     entries[entryId]?.title,
     entries[entryId]?.date,
@@ -200,8 +217,7 @@ export function CollaborativeEntryEditor({
     (entries[entryId]?.authors || []).join("\0"),
   ].join("|");
 
-  const onDocChangeRef = useRef(onDocChange);
-  onDocChangeRef.current = onDocChange;
+  const lastQualityRef = useRef("");
 
   useEffect(() => {
     if (!editor) return;
