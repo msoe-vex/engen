@@ -13,12 +13,14 @@ SA_EMAIL="${SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 POOL_ID="github-pool"
 PROVIDER_ID="github-provider"
 
-echo "==> Enabling bootstrap IAM & STS APIs on ${PROJECT_ID}..."
+echo "==> Enabling bootstrap IAM, STS, Storage & Artifact Registry APIs on ${PROJECT_ID}..."
 gcloud services enable \
   iam.googleapis.com \
   iamcredentials.googleapis.com \
   cloudresourcemanager.googleapis.com \
   sts.googleapis.com \
+  storage.googleapis.com \
+  artifactregistry.googleapis.com \
   --project="${PROJECT_ID}"
 
 echo "==> Creating service account ${SA_EMAIL}..."
