@@ -493,3 +493,31 @@ resource "google_cloud_run_domain_mapping" "website_domain" {
     route_name = google_cloud_run_v2_service.website.name
   }
 }
+
+# Better Auth verification composite index (for passkeys and email verification)
+resource "google_firestore_index" "verification_query" {
+  project    = var.project_id
+  collection = "verification"
+
+  fields {
+    field_path = "identifier"
+    order      = "ASCENDING"
+  }
+
+  fields {
+    field_path = "createdAt"
+    order      = "ASCENDING"
+  }
+
+  fields {
+    field_path = "id"
+    order      = "ASCENDING"
+  }
+
+  fields {
+    field_path = "__name__"
+    order      = "ASCENDING"
+  }
+
+  depends_on = [google_project_service.apis]
+}

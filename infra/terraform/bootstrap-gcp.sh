@@ -30,6 +30,7 @@ gcloud iam service-accounts create "${SA_NAME}" \
 
 for role in \
   roles/resourcemanager.projectIamAdmin \
+  roles/iam.serviceAccountAdmin \
   roles/run.admin \
   roles/artifactregistry.admin \
   roles/iam.serviceAccountUser \
