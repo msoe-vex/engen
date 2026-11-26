@@ -18,6 +18,11 @@ Related: [ADR-003](../../02-architecture/decisions/ADR-003-byok-keys-local.md), 
 - Inspect `PATCH /users/me` payloads and Firestore user docs after settings save — no `apiKey` fields
 - Schema “must NOT go in Firestore” table — [schema](../../03-reference/schema.md)
 
+## Canonical user agreements
+
+- [Privacy Policy](./legal/privacy-policy.md) (Live page: `/privacy`)
+- [Terms of Service](./legal/terms-of-service.md) (Live page: `/terms`)
+
 ## Gaps
 
 - Formal DPA / retention policy docs for production tenants (see NFR-compliance)
