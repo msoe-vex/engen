@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type HTMLAttributes } from "react";
+import { createElement, useEffect, useMemo, useRef, useState, type HTMLAttributes } from "react";
 import { createPortal } from "react-dom";
 import {
   DndContext,
@@ -58,6 +58,11 @@ function resolveIcon(name: string): LucideIcon {
   return (LucideIcons as unknown as Record<string, LucideIcon>)[name] || Shapes;
 }
 
+function PhaseGlyph({ name, size = 18 }: { name: string; size?: number }) {
+  const icon = resolveIcon(name);
+  return createElement(icon, { size });
+}
+
 function PhaseIconPicker({
   currentIcon,
   onSelect,
@@ -104,8 +109,6 @@ function PhaseIconPicker({
     return () => window.removeEventListener("keydown", onKey);
   }, [isOpen]);
 
-  const iconComp = resolveIcon(currentIcon);
-
   return (
     <div className="relative shrink-0">
       <button
@@ -121,7 +124,7 @@ function PhaseIconPicker({
         aria-label="Choose icon and color"
         aria-expanded={isOpen}
       >
-        {iconComp({ size: 18 })}
+        <PhaseGlyph name={currentIcon} size={18} />
       </button>
 
       {isOpen &&
@@ -249,8 +252,6 @@ function PhaseRowView({
     queueMicrotask(() => setLocalColor(phase.color));
   }, [phase.color]);
 
-  const iconComp = resolveIcon(phase.iconName);
-
   return (
     <div
       className={`group flex w-full items-center gap-2.5 rounded-nb-xl border bg-nb-surface px-2.5 py-2.5 transition-colors ${
@@ -280,7 +281,7 @@ function PhaseRowView({
             borderColor: `${localColor}40`,
           }}
         >
-          {iconComp({ size: 18 })}
+          <PhaseGlyph name={phase.iconName} size={18} />
         </div>
       ) : (
         <PhaseIconPicker
