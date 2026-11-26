@@ -602,6 +602,16 @@ export function AppChrome({ children, title }: { children: ReactNode; title?: st
                   </>
                 )}
               </div>
+
+              <div className="flex items-center justify-center gap-3 border-t border-nb-outline-variant/20 pt-4 text-[11px] text-nb-on-surface-variant/70">
+                <Link href="/privacy" className="hover:text-nb-on-surface hover:underline">
+                  Privacy Policy
+                </Link>
+                <span>•</span>
+                <Link href="/terms" className="hover:text-nb-on-surface hover:underline">
+                  Terms of Service
+                </Link>
+              </div>
             </div>
           </div>
           {process.env.NODE_ENV === "development" && (
