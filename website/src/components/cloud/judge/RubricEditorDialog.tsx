@@ -56,22 +56,24 @@ export function RubricEditorDialog({
 
   useEffect(() => {
     if (!isOpen) return;
-    setError(null);
-    setBusy(false);
-    if (rubric) {
-      setNewMode("manual");
-      const displayName = rubric.name || rubric.matrix?.title || "";
-      setName(displayName);
-      const next = rubric.matrix
-        ? cloneMatrix(rubric.matrix)
-        : blankMatrix(displayName || "Rubric");
-      if (displayName) next.title = displayName;
-      setMatrix(next);
-    } else {
-      setNewMode("choose");
-      setName("");
-      setMatrix(blankMatrix());
-    }
+    queueMicrotask(() => {
+      setError(null);
+      setBusy(false);
+      if (rubric) {
+        setNewMode("manual");
+        const displayName = rubric.name || rubric.matrix?.title || "";
+        setName(displayName);
+        const next = rubric.matrix
+          ? cloneMatrix(rubric.matrix)
+          : blankMatrix(displayName || "Rubric");
+        if (displayName) next.title = displayName;
+        setMatrix(next);
+      } else {
+        setNewMode("choose");
+        setName("");
+        setMatrix(blankMatrix());
+      }
+    });
   }, [isOpen, rubric]);
 
   async function onPickDocument(file: File) {

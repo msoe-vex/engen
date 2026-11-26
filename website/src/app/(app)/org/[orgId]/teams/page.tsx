@@ -62,7 +62,7 @@ export default function OrgTeamsPage() {
 
   useEffect(() => {
     if (!expandedId) return;
-    setMemberQuery("");
+    queueMicrotask(() => setMemberQuery(""));
     let cancelled = false;
     void cloudApi
       .listTeamMembers(orgId, expandedId)

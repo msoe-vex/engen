@@ -34,7 +34,9 @@ export default function ConfirmationDialog({
   const [typedText, setTypedText] = useState("");
 
   useEffect(() => {
-    if (isOpen) setTypedText("");
+    if (isOpen) {
+      queueMicrotask(() => setTypedText(""));
+    }
   }, [isOpen]);
 
   const iconTone =

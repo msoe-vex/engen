@@ -52,7 +52,7 @@ export function EmailVerificationScreen({
   const { refetch: refetchSession } = useAppSession();
   const [checking, setChecking] = useState(false);
   const [resending, setResending] = useState(false);
-  const [cooldown, setCooldown] = useState(0);
+  const [cooldown, setCooldown] = useState(() => readCooldownRemaining());
   const [onboardingEmail, setOnboardingEmail] = useState("");
   const [savingEmail, setSavingEmail] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -89,9 +89,6 @@ export function EmailVerificationScreen({
     }
   }
 
-  useEffect(() => {
-    setCooldown(readCooldownRemaining());
-  }, []);
 
   useEffect(() => {
     if (cooldown <= 0) return;

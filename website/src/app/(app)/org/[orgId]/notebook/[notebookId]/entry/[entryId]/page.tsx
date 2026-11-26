@@ -100,11 +100,16 @@ export default function EntryPage() {
     setDraftEntryId(entryId);
     setTitleDraft(meta?.title ?? "");
     setAuthorsDraft(meta?.authors || []);
-    hydratedEntryIdRef.current = meta ? entryId : null;
     setDocJson(null);
     setSaveState("idle");
     setMetaOpen(!narrow);
   }
+
+  useEffect(() => {
+    if (draftEntryId === entryId) {
+      hydratedEntryIdRef.current = meta ? entryId : null;
+    }
+  }, [draftEntryId, entryId, meta]);
 
   useEffect(() => {
     patchEditorChrome({ saveState: "idle" });
@@ -138,12 +143,14 @@ export default function EntryPage() {
   }, [saveState]);
 
   useEffect(() => {
-    const fromEntries = new Set<string>();
-    for (const e of Object.values(entries)) {
-      for (const a of e.authors || []) fromEntries.add(a);
-    }
-    for (const a of readDefaultAuthors()) fromEntries.add(a);
-    setAuthorOptions([...fromEntries].sort((a, b) => a.localeCompare(b)));
+    queueMicrotask(() => {
+      const fromEntries = new Set<string>();
+      for (const e of Object.values(entries)) {
+        for (const a of e.authors || []) fromEntries.add(a);
+      }
+      for (const a of readDefaultAuthors()) fromEntries.add(a);
+      setAuthorOptions([...fromEntries].sort((a, b) => a.localeCompare(b)));
+    });
   }, [entries]);
 
   useEffect(() => {
@@ -275,7 +282,9 @@ export default function EntryPage() {
   ]);
 
   useEffect(() => {
-    if (narrow && viewMode === "split") setViewMode("editor");
+    if (narrow && viewMode === "split") {
+      queueMicrotask(() => setViewMode("editor"));
+    }
   }, [narrow, viewMode]);
 
   // One PanelGroup for all view modes so CollaborativeEntryEditor stays mounted

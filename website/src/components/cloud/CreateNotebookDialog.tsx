@@ -45,16 +45,20 @@ export function CreateNotebookDialog({
   useEffect(() => {
     if (!isOpen) return;
 
-    setName("Competition Notebook");
-    setAccessMode("org");
-    setTeamIds([]);
-    setUserIds([]);
-    setError(null);
+    queueMicrotask(() => {
+      setName("Competition Notebook");
+      setAccessMode("org");
+      setTeamIds([]);
+      setUserIds([]);
+      setError(null);
+    });
 
     let cancelled = false;
     if (propTeams && propMembers) {
-      setTeamsList(propTeams);
-      setPeopleList(propMembers);
+      queueMicrotask(() => {
+        setTeamsList(propTeams);
+        setPeopleList(propMembers);
+      });
     } else {
       void Promise.all([
         cloudApi.listTeams(orgId).catch(() => [] as TeamSummary[]),

@@ -171,7 +171,7 @@ export default function SettingsPage({ onClose, isEmbedded = false }: SettingsPa
   const [prefsReady, setPrefsReady] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
+    queueMicrotask(() => setMounted(true));
   }, []);
 
   useEffect(() => {

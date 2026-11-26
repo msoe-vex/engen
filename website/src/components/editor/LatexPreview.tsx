@@ -44,7 +44,7 @@ export default function LatexPreview({ latexContent, pdfUrl }: LatexPreviewProps
 
   // Sync zoom percentage input with current scale
   useEffect(() => {
-    setScaleInput(String(Math.round(scale * 100)));
+    queueMicrotask(() => setScaleInput(String(Math.round(scale * 100))));
   }, [scale]);
 
   // Measure unscaled content height to drive the sizer wrapper

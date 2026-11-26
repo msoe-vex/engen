@@ -78,7 +78,6 @@ export default function AdminPage() {
 
   useEffect(() => {
     let cancelled = false;
-    setRefreshing(true);
     void (async () => {
       try {
         const [u, o, m] = await Promise.all([
@@ -334,7 +333,7 @@ export default function AdminPage() {
                   </span>
                   <select
                     value={filterRole}
-                    onChange={(e) => setFilterRole(e.target.value as any)}
+                    onChange={(e) => setFilterRole(e.target.value as "all" | "admin" | "ai")}
                     className="h-9 rounded-lg border border-nb-outline-variant/30 bg-nb-surface px-2.5 text-xs font-medium text-nb-on-surface focus:border-nb-primary focus:outline-none"
                   >
                     <option value="all">All Users</option>

@@ -107,7 +107,9 @@ export function OrgCatalogManager({
   }, [orgId, section, setError]);
 
   useEffect(() => {
-    if (canManage) load();
+    if (canManage) {
+      queueMicrotask(() => load());
+    }
   }, [canManage, load]);
 
   async function saveItem() {

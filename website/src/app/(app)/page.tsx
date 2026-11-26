@@ -89,7 +89,9 @@ function HomeInner() {
 
   useEffect(() => {
     const invite = searchParams.get("invite");
-    if (invite) setInviteOpen(true);
+    if (invite) {
+      queueMicrotask(() => setInviteOpen(true));
+    }
   }, [searchParams]);
 
   useEffect(() => {

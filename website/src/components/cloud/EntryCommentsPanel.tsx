@@ -52,11 +52,13 @@ function ComposeCommentDialog({
 
   useEffect(() => {
     if (open) {
-      setText("");
-      setMentioned([]);
-      setMentionQuery(null);
-      setMentionStart(null);
-      setHighlight(0);
+      queueMicrotask(() => {
+        setText("");
+        setMentioned([]);
+        setMentionQuery(null);
+        setMentionStart(null);
+        setHighlight(0);
+      });
     }
   }, [open]);
 

@@ -60,10 +60,11 @@ export default function AccountSecurityPage() {
   useEffect(() => {
     let cancelled = false;
     if (!session?.user) {
-      setAccountsLoading(false);
+      queueMicrotask(() => {
+        if (!cancelled) setAccountsLoading(false);
+      });
       return;
     }
-    setAccountsLoading(true);
     void Promise.all([
       authClient.listAccounts().then((res) => {
         if (!cancelled && res.data) {

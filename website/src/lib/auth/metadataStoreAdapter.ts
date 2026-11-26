@@ -107,7 +107,7 @@ export const metadataStoreAdapter = (store: MetadataStore) => {
           const doc = await store.get(`${model}/${String(idClause.value)}`);
           if (!doc) return null;
           if (!matchInProcess(doc, where)) return null;
-          return doc as any;
+          return doc as unknown as Record<string, unknown>;
         }
 
         const storeWheres: MetadataWhere[] = where
@@ -125,7 +125,7 @@ export const metadataStoreAdapter = (store: MetadataStore) => {
 
         for (const row of results) {
           if (matchInProcess(row, where)) {
-            return row as any;
+            return row as unknown as Record<string, unknown>;
           }
         }
         return null;
@@ -136,7 +136,7 @@ export const metadataStoreAdapter = (store: MetadataStore) => {
         if (idClause && (!idClause.operator || idClause.operator === "eq")) {
           const doc = await store.get(`${model}/${String(idClause.value)}`);
           if (!doc || !matchInProcess(doc, where || [])) return [];
-          return [doc as any];
+          return [doc as unknown as Record<string, unknown>];
         }
 
         const storeWheres: MetadataWhere[] = (where || [])
@@ -157,7 +157,7 @@ export const metadataStoreAdapter = (store: MetadataStore) => {
         if (limit && limit > 0) {
           filtered = filtered.slice(0, limit);
         }
-        return filtered as any[];
+        return filtered as unknown as Record<string, unknown>[];
       },
 
       async update({ model, where, update: updates }) {
@@ -168,7 +168,7 @@ export const metadataStoreAdapter = (store: MetadataStore) => {
           if (!existing || !matchInProcess(existing, where)) return null;
           const merged = { ...existing, ...updates, id: existing.id };
           await store.update(docPath, updates as Record<string, unknown>);
-          return merged as any;
+          return merged as unknown as Record<string, unknown>;
         }
 
         const target = await this.findOne({ model, where });
@@ -176,7 +176,7 @@ export const metadataStoreAdapter = (store: MetadataStore) => {
         const id = String((target as Record<string, unknown>).id);
         const docPath = `${model}/${id}`;
         await store.update(docPath, updates as Record<string, unknown>);
-        return { ...(target as Record<string, unknown>), ...updates, id } as any;
+        return { ...(target as Record<string, unknown>), ...updates, id } as unknown as Record<string, unknown>;
       },
 
       async updateMany({ model, where, update: updates }) {

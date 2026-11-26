@@ -104,7 +104,7 @@ function PhaseIconPicker({
     return () => window.removeEventListener("keydown", onKey);
   }, [isOpen]);
 
-  const IconComp = resolveIcon(currentIcon);
+  const iconComp = resolveIcon(currentIcon);
 
   return (
     <div className="relative shrink-0">
@@ -121,7 +121,7 @@ function PhaseIconPicker({
         aria-label="Choose icon and color"
         aria-expanded={isOpen}
       >
-        <IconComp size={18} />
+        {iconComp({ size: 18 })}
       </button>
 
       {isOpen &&
@@ -246,10 +246,10 @@ function PhaseRowView({
   const [localColor, setLocalColor] = useState(phase.color);
 
   useEffect(() => {
-    setLocalColor(phase.color);
+    queueMicrotask(() => setLocalColor(phase.color));
   }, [phase.color]);
 
-  const IconComp = resolveIcon(phase.iconName);
+  const iconComp = resolveIcon(phase.iconName);
 
   return (
     <div
@@ -280,7 +280,7 @@ function PhaseRowView({
             borderColor: `${localColor}40`,
           }}
         >
-          <IconComp size={18} />
+          {iconComp({ size: 18 })}
         </div>
       ) : (
         <PhaseIconPicker

@@ -73,54 +73,56 @@ export default function OrgSettingsPage() {
 
   useEffect(() => {
     if (!org) return;
-    setName(org.name || "");
-    setSlug(org.slug || "");
-    const vis = org.publicPage?.visibility === "public" ? "public" : "hidden";
-    setPublicVisibility(vis);
-    const aboutText = org.publicPage?.about || org.publicPage?.mission || "";
-    setAbout(aboutText);
-    setAnnouncement(org.publicPage?.announcement?.text || "");
-    setAnnouncementHref(org.publicPage?.announcement?.href || "");
-    setCtaTitle(org.publicPage?.cta?.title || "");
-    setCtaBody(org.publicPage?.cta?.body || "");
-    setCtaJoin(org.publicPage?.cta?.joinUrl || "");
-    setCtaDonate(org.publicPage?.cta?.donateUrl || "");
-    setLogoAssetId(org.publicPage?.logoAssetId);
-    loadLogoPreview(org.publicPage?.logoAssetId);
-    const secs = org.publicPage?.sections;
-    const aboutOn = secs?.about !== false;
-    const donorsOn = secs?.donors !== false;
-    const projectsOn = secs?.projects !== false;
-    const eventsOn = secs?.events !== false;
-    const membersOn = secs?.members !== false;
-    const socialOn = secs?.social !== false;
-    setSectionAbout(aboutOn);
-    setSectionDonors(donorsOn);
-    setSectionProjects(projectsOn);
-    setSectionEvents(eventsOn);
-    setSectionMembers(membersOn);
-    setSectionSocial(socialOn);
-    setInitialSnapshot(
-      JSON.stringify({
-        name: org.name || "",
-        slug: org.slug || "",
-        vis,
-        about: aboutText,
-        announcement: org.publicPage?.announcement?.text || "",
-        announcementHref: org.publicPage?.announcement?.href || "",
-        ctaTitle: org.publicPage?.cta?.title || "",
-        ctaBody: org.publicPage?.cta?.body || "",
-        ctaJoin: org.publicPage?.cta?.joinUrl || "",
-        ctaDonate: org.publicPage?.cta?.donateUrl || "",
-        logoAssetId: org.publicPage?.logoAssetId || "",
-        sectionAbout: aboutOn,
-        sectionDonors: donorsOn,
-        sectionProjects: projectsOn,
-        sectionEvents: eventsOn,
-        sectionMembers: membersOn,
-        sectionSocial: socialOn,
-      })
-    );
+    queueMicrotask(() => {
+      setName(org.name || "");
+      setSlug(org.slug || "");
+      const vis = org.publicPage?.visibility === "public" ? "public" : "hidden";
+      setPublicVisibility(vis);
+      const aboutText = org.publicPage?.about || org.publicPage?.mission || "";
+      setAbout(aboutText);
+      setAnnouncement(org.publicPage?.announcement?.text || "");
+      setAnnouncementHref(org.publicPage?.announcement?.href || "");
+      setCtaTitle(org.publicPage?.cta?.title || "");
+      setCtaBody(org.publicPage?.cta?.body || "");
+      setCtaJoin(org.publicPage?.cta?.joinUrl || "");
+      setCtaDonate(org.publicPage?.cta?.donateUrl || "");
+      setLogoAssetId(org.publicPage?.logoAssetId);
+      loadLogoPreview(org.publicPage?.logoAssetId);
+      const secs = org.publicPage?.sections;
+      const aboutOn = secs?.about !== false;
+      const donorsOn = secs?.donors !== false;
+      const projectsOn = secs?.projects !== false;
+      const eventsOn = secs?.events !== false;
+      const membersOn = secs?.members !== false;
+      const socialOn = secs?.social !== false;
+      setSectionAbout(aboutOn);
+      setSectionDonors(donorsOn);
+      setSectionProjects(projectsOn);
+      setSectionEvents(eventsOn);
+      setSectionMembers(membersOn);
+      setSectionSocial(socialOn);
+      setInitialSnapshot(
+        JSON.stringify({
+          name: org.name || "",
+          slug: org.slug || "",
+          vis,
+          about: aboutText,
+          announcement: org.publicPage?.announcement?.text || "",
+          announcementHref: org.publicPage?.announcement?.href || "",
+          ctaTitle: org.publicPage?.cta?.title || "",
+          ctaBody: org.publicPage?.cta?.body || "",
+          ctaJoin: org.publicPage?.cta?.joinUrl || "",
+          ctaDonate: org.publicPage?.cta?.donateUrl || "",
+          logoAssetId: org.publicPage?.logoAssetId || "",
+          sectionAbout: aboutOn,
+          sectionDonors: donorsOn,
+          sectionProjects: projectsOn,
+          sectionEvents: eventsOn,
+          sectionMembers: membersOn,
+          sectionSocial: socialOn,
+        })
+      );
+    });
   }, [org, loadLogoPreview]);
 
   const currentSnapshot = JSON.stringify({

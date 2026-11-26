@@ -146,7 +146,9 @@ export function CloudNotebookCompiler() {
 
   useEffect(() => {
     let cancelled = false;
-    setPdfProbeDone(false);
+    queueMicrotask(() => {
+      if (!cancelled) setPdfProbeDone(false);
+    });
     void (async () => {
       const id = await loadExports();
       if (cancelled) return;
@@ -160,12 +162,17 @@ export function CloudNotebookCompiler() {
 
   useEffect(() => {
     if (!pdfProbeDone) return;
-    void loadPdf(selectedExportId);
+    const timer = setTimeout(() => {
+      void loadPdf(selectedExportId);
+    }, 0);
+    return () => clearTimeout(timer);
   }, [selectedExportId, pdfProbeDone, loadPdf]);
 
   useEffect(() => {
     if (!newLinkExportId && (latestExportId || exportsList[0]?.id)) {
-      setNewLinkExportId(latestExportId || exportsList[0]?.id || "");
+      queueMicrotask(() => {
+        setNewLinkExportId(latestExportId || exportsList[0]?.id || "");
+      });
     }
   }, [latestExportId, exportsList, newLinkExportId]);
 

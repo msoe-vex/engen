@@ -46,13 +46,19 @@ export default function OrgPeoplePage() {
   const activeMembers = members.filter((m) => m.status !== "alumni");
   const alumniMembers = members.filter((m) => m.status === "alumni");
 
+  const [nowMs, setNowMs] = useState(0);
+
+  useEffect(() => {
+    queueMicrotask(() => setNowMs(Date.now()));
+  }, []);
+
   function formatInviteExpiration(expiresAt?: string): {
     label: string;
     isExpiringSoon: boolean;
     isExpired: boolean;
   } {
     if (!expiresAt) return { label: "No expiration", isExpiringSoon: false, isExpired: false };
-    const diffMs = Date.parse(expiresAt) - Date.now();
+    const diffMs = Date.parse(expiresAt) - (nowMs || Date.parse(expiresAt));
     if (diffMs <= 0) {
       return { label: "Expired", isExpiringSoon: true, isExpired: true };
     }
@@ -125,7 +131,9 @@ export default function OrgPeoplePage() {
   useEffect(() => {
     if (!photoMember) return;
     const latest = members.find((m) => m.uid === photoMember.uid);
-    if (latest && latest !== photoMember) setPhotoMember(latest);
+    if (latest && latest !== photoMember) {
+      queueMicrotask(() => setPhotoMember(latest));
+    }
   }, [members, photoMember]);
 
   function checkAndSetRole(uid: string, targetRole: string) {
@@ -709,9 +717,11 @@ function InvitePeopleDialog({
 
   useEffect(() => {
     if (!open) return;
-    setEmail("");
-    setRole("member");
-    setExpiresInDays(14);
+    queueMicrotask(() => {
+      setEmail("");
+      setRole("member");
+      setExpiresInDays(14);
+    });
   }, [open]);
 
   function submit() {

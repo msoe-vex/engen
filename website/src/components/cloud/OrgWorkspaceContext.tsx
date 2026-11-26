@@ -79,9 +79,12 @@ export function OrgWorkspaceProvider({
   // Core shell: org + notebooks only (fast first paint).
   useEffect(() => {
     let cancelled = false;
-    setInitialLoaded(false);
-    setDirectoryLoaded(false);
-    setOrgUnavailable(false);
+    queueMicrotask(() => {
+      if (cancelled) return;
+      setInitialLoaded(false);
+      setDirectoryLoaded(false);
+      setOrgUnavailable(false);
+    });
     queueMicrotask(() => {
       void (async () => {
         try {
