@@ -178,6 +178,19 @@ resource "google_cloud_run_v2_service" "core" {
         value = var.project_id
       }
       env {
+        name  = "AUTH_PROVIDER"
+        value = "better-auth"
+      }
+      env {
+        name = "BETTER_AUTH_SECRET"
+        value_source {
+          secret_key_ref {
+            secret  = google_secret_manager_secret.secrets["better-auth-secret"].secret_id
+            version = "latest"
+          }
+        }
+      }
+      env {
         name  = "CORS_ORIGIN"
         value = var.app_url != "" ? "${var.app_url},http://localhost:3000" : "http://localhost:3000"
       }
