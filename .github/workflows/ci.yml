@@ -17,11 +17,12 @@ jobs:
       - name: Install & build shared
         run: npm --prefix packages/shared ci && npm --prefix packages/shared run build
 
-      - name: Typecheck & lint website
+      - name: Typecheck, lint & test website
         run: |
           npm --prefix website ci
           npx tsc --project website/tsconfig.json --noEmit
           npm --prefix website run lint
+          npm --prefix website test
 
       - name: Typecheck core
         run: |
