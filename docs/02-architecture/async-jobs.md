@@ -69,4 +69,4 @@ Workers call Core progress endpoints; Core fans out `job.progress` with `status`
 - Env: [env-vars.md](../03-reference/env-vars.md)  
 - Local: [local-development.md](../04-guides/local-development.md)  
 - Ports: [ADR-009](./decisions/ADR-009-platform-ports.md), [platform-ports Epic B](../01-requirements/plans/platform-ports.md)  
-- Issue [#93](https://github.com/msoe-vex/engineering-notebook-editor/issues/93)
+- Issue [#93](https://github.com/msoe-vex/engen/issues/93)

@@ -477,7 +477,7 @@ export default function AboutPage({
           </div>
           <div className="flex flex-wrap items-center gap-6">
             <a
-              href="https://github.com/msoe-vex/engineering-notebook-editor"
+              href="https://github.com/msoe-vex/engen"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-nb-on-surface-variant hover:text-nb-primary transition-colors cursor-pointer"

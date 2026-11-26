@@ -47,7 +47,7 @@ Forward-looking work. Requirements index: [README.md](./README.md). Parity epics
 
 ## Platform / job dispatch
 
-- [x] `JOB_DISPATCH=pubsub` + Compose emulator + worker pull — [#93](https://github.com/msoe-vex/engineering-notebook-editor/issues/93)
+- [x] `JOB_DISPATCH=pubsub` + Compose emulator + worker pull — [#93](https://github.com/msoe-vex/engen/issues/93)
 - [x] **Prod Pub/Sub** topics/IAM + Cloud Run always-on note for pull workers
 
 ## Platform / ports & identity

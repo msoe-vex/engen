@@ -20,7 +20,7 @@ Workers need a wake path that matches local and GCP. HTTP Core→worker POSTs di
 
 - Compose includes Pub/Sub emulator + init.  
 - [async-jobs.md](../async-jobs.md) is the living map.  
-- Issue [#93](https://github.com/msoe-vex/engineering-notebook-editor/issues/93) tracks remaining prod IAM/deploy polish.
+- Issue [#93](https://github.com/msoe-vex/engen/issues/93) tracks remaining prod IAM/deploy polish.
 
 ## Alternatives considered
 

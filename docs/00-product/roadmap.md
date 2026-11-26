@@ -1,7 +1,7 @@
 # Roadmap — progress and plans
 
 Living plan for ENGen (engineering notebook editor). Pair with [vision.md](./vision.md), [journeys.md](./journeys.md), and [backlog.md](../01-requirements/backlog.md).  
-GitHub issues: [msoe-vex/engineering-notebook-editor/issues](https://github.com/msoe-vex/engineering-notebook-editor/issues).
+GitHub issues: [msoe-vex/engen/issues](https://github.com/msoe-vex/engen/issues).
 
 **Origin:** Built for **robotics design notebooks** (VEX, FIRST, and similar teams) — structured entries, phases, credits, and printable PDFs — now a multi-tenant cloud product (GCP + Firebase).
 
@@ -24,7 +24,7 @@ GitHub issues: [msoe-vex/engineering-notebook-editor/issues](https://github.com/
 | Public org page + notebooks | Done (MVP) | Slug `/o/:slug`, CMS admin UI, TipTap public entries, copy URL, last PDF; org assets + People photos |
 | Platform ports | Done (stretch left) | `AuthPort`, `StoragePort`, `JobDispatchPort`, `NotificationPort`, `MetadataStore`; Epic B storage hardening/docs shipped; stretch = GenAiCompletePort / second-cloud adapters — [ADR-009](../02-architecture/decisions/ADR-009-platform-ports.md) |
 
-Open bugs / older requests: tables [#87](https://github.com/msoe-vex/engineering-notebook-editor/issues/87), descriptions [#81](https://github.com/msoe-vex/engineering-notebook-editor/issues/81), comments [#79](https://github.com/msoe-vex/engineering-notebook-editor/issues/79), tagging [#64](https://github.com/msoe-vex/engineering-notebook-editor/issues/64), LuaLaTeX [#67](https://github.com/msoe-vex/engineering-notebook-editor/issues/67), explorer dual modes [#69](https://github.com/msoe-vex/engineering-notebook-editor/issues/69), AI judge UX [#68](https://github.com/msoe-vex/engineering-notebook-editor/issues/68).
+Open bugs / older requests: tables [#87](https://github.com/msoe-vex/engen/issues/87), descriptions [#81](https://github.com/msoe-vex/engen/issues/81), comments [#79](https://github.com/msoe-vex/engen/issues/79), tagging [#64](https://github.com/msoe-vex/engen/issues/64), LuaLaTeX [#67](https://github.com/msoe-vex/engen/issues/67), explorer dual modes [#69](https://github.com/msoe-vex/engen/issues/69), AI judge UX [#68](https://github.com/msoe-vex/engen/issues/68).
 
 ---
 
