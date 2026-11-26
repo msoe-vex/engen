@@ -1,6 +1,6 @@
 import type { MetadataStore, MetadataWhere, MetadataWhereOp } from "@engineering-notebook/shared";
 import { createAdapterFactory } from "@better-auth/core/db/adapter";
-import type { CleanedWhere, CustomAdapter, ModelTarget } from "@better-auth/core/db/adapter";
+import type { CleanedWhere, CustomAdapter, JoinConfig, ModelTarget } from "@better-auth/core/db/adapter";
 
 function mapOp(operator: string): MetadataWhereOp {
   switch (operator) {
@@ -101,72 +101,140 @@ export const metadataStoreAdapter = (store: MetadataStore) => {
         return record;
       },
 
-      async findOne<T>({ model, where }: ModelTarget & { where: CleanedWhere[] }): Promise<T | null> {
+      async findOne<T>({
+        model,
+        where,
+        join,
+      }: ModelTarget & {
+        where: CleanedWhere[];
+        select?: string[];
+        join?: JoinConfig;
+      }): Promise<T | null> {
+        let result: Record<string, unknown> | null = null;
         const idClause = where.find((w) => w.field === "id");
         if (idClause && (!idClause.operator || idClause.operator === "eq")) {
           const doc = await store.get(`${model}/${String(idClause.value)}`);
-          if (!doc) return null;
-          if (!matchInProcess(doc, where)) return null;
-          return doc as unknown as T;
-        }
+          if (doc && matchInProcess(doc, where)) {
+            result = doc;
+          }
+        } else {
+          // Use the most selective single equality clause for Firestore query to avoid index failures
+          const eqClauses = where.filter((w) => !w.operator || w.operator === "eq");
+          const primaryClause =
+            eqClauses.find((w) => w.field === "accountId" || w.field === "email" || w.field === "token") ||
+            eqClauses[0];
 
-        const storeWheres: MetadataWhere[] = where
-          .filter((w) => ["eq", "ne", "lt", "lte", "gt", "gte"].includes(w.operator))
-          .map((w) => ({
-            field: w.field,
-            op: mapOp(w.operator),
-            value: w.value,
-          }));
+          const storeWheres: MetadataWhere[] = primaryClause
+            ? [{ field: primaryClause.field, op: "==", value: primaryClause.value }]
+            : where
+                .filter((w) => ["eq", "ne", "lt", "lte", "gt", "gte"].includes(w.operator))
+                .slice(0, 1)
+                .map((w) => ({ field: w.field, op: mapOp(w.operator), value: w.value }));
 
-        const results = await store.query(model, {
-          where: storeWheres,
-          limit: 10,
-        });
+          const results = await store.query(model, {
+            where: storeWheres.length > 0 ? storeWheres : undefined,
+            limit: 25,
+          });
 
-        for (const row of results) {
-          if (matchInProcess(row, where)) {
-            return row as unknown as T;
+          for (const row of results) {
+            if (matchInProcess(row, where)) {
+              result = row;
+              break;
+            }
           }
         }
-        return null;
+
+        if (!result) return null;
+
+        // Resolve joins if requested by Better Auth
+        if (join && Object.keys(join).length > 0) {
+          result = { ...result };
+          if (join.user && typeof result.userId === "string") {
+            const userDoc = await store.get(`user/${result.userId}`);
+            result.user = userDoc ?? null;
+          }
+          if (join.account && typeof result.id === "string") {
+            const accounts = await store.query("account", {
+              where: [{ field: "userId", op: "==", value: String(result.id) }],
+              limit: 10,
+            });
+            result.account = accounts;
+          }
+        }
+
+        return result as unknown as T;
       },
 
       async findMany<T>({
         model,
         where,
         limit,
+        select,
         sortBy,
+        offset,
+        join,
       }: ModelTarget & {
         where?: CleanedWhere[];
         limit?: number;
+        select?: string[];
         sortBy?: { field: string; direction: "asc" | "desc" };
+        offset?: number;
+        join?: JoinConfig;
       }): Promise<T[]> {
+        let rows: Record<string, unknown>[] = [];
         const idClause = (where || []).find((w) => w.field === "id");
         if (idClause && (!idClause.operator || idClause.operator === "eq")) {
           const doc = await store.get(`${model}/${String(idClause.value)}`);
-          if (!doc || !matchInProcess(doc, where || [])) return [];
-          return [doc as unknown as T];
+          if (doc && matchInProcess(doc, where || [])) {
+            rows = [doc];
+          }
+        } else {
+          const eqClauses = (where || []).filter((w) => !w.operator || w.operator === "eq");
+          const primaryClause =
+            eqClauses.find((w) => w.field === "accountId" || w.field === "userId" || w.field === "email" || w.field === "token") ||
+            eqClauses[0];
+
+          const storeWheres: MetadataWhere[] = primaryClause
+            ? [{ field: primaryClause.field, op: "==", value: primaryClause.value }]
+            : (where || [])
+                .filter((w) => ["eq", "ne", "lt", "lte", "gt", "gte"].includes(w.operator))
+                .slice(0, 1)
+                .map((w) => ({ field: w.field, op: mapOp(w.operator), value: w.value }));
+
+          const results = await store.query(model, {
+            where: storeWheres.length > 0 ? storeWheres : undefined,
+            orderBy: sortBy ? { field: sortBy.field, direction: sortBy.direction } : undefined,
+            limit: limit && limit > 0 ? limit * 3 : 100,
+          });
+
+          rows = where ? results.filter((r) => matchInProcess(r, where)) : results;
+          if (limit && limit > 0) {
+            rows = rows.slice(0, limit);
+          }
         }
 
-        const storeWheres: MetadataWhere[] = (where || [])
-          .filter((w) => ["eq", "ne", "lt", "lte", "gt", "gte"].includes(w.operator))
-          .map((w) => ({
-            field: w.field,
-            op: mapOp(w.operator),
-            value: w.value,
-          }));
-
-        const results = await store.query(model, {
-          where: storeWheres.length > 0 ? storeWheres : undefined,
-          orderBy: sortBy ? { field: sortBy.field, direction: sortBy.direction } : undefined,
-          limit: limit && limit > 0 ? limit * 2 : 100,
-        });
-
-        let filtered = where ? results.filter((r) => matchInProcess(r, where)) : results;
-        if (limit && limit > 0) {
-          filtered = filtered.slice(0, limit);
+        // Resolve joins if requested
+        if (join && Object.keys(join).length > 0) {
+          rows = await Promise.all(
+            rows.map(async (row) => {
+              const enriched = { ...row };
+              if (join.user && typeof enriched.userId === "string") {
+                const userDoc = await store.get(`user/${enriched.userId}`);
+                enriched.user = userDoc ?? null;
+              }
+              if (join.account && typeof enriched.id === "string") {
+                const accounts = await store.query("account", {
+                  where: [{ field: "userId", op: "==", value: String(enriched.id) }],
+                  limit: 10,
+                });
+                enriched.account = accounts;
+              }
+              return enriched;
+            })
+          );
         }
-        return filtered as unknown as T[];
+
+        return rows as unknown as T[];
       },
 
       async update<T>({
