@@ -209,6 +209,14 @@ export function CollaborativeEntryEditor({
     onDocChangeRef.current = onDocChange;
   }, [onDocChange]);
 
+  const metaFingerprint = [
+    entries[entryId]?.title,
+    entries[entryId]?.date,
+    entries[entryId]?.phase,
+    entries[entryId]?.isTemplate,
+    (entries[entryId]?.authors || []).join("\0"),
+  ].join("|");
+
   const lastQualityRef = useRef("");
 
   useEffect(() => {
