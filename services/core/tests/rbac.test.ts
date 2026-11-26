@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import type { MetadataDoc, MetadataStore } from "@engineering-notebook/shared";
+import type { MetadataDoc, MetadataStore, MetadataQueryOpts } from "@engineering-notebook/shared";
 import { setMetadataStore } from "../src/db/metadataStore.js";
 import {
   isServiceAdmin,
@@ -42,7 +42,7 @@ class MemoryMetadataStore implements MetadataStore {
     this.docs.delete(path);
   }
 
-  async query(collectionPath: string, opts?: { where?: [string, string, unknown][]; limit?: number }): Promise<MetadataDoc[]> {
+  async query(collectionPath: string, _opts?: MetadataQueryOpts): Promise<MetadataDoc[]> {
     const res: MetadataDoc[] = [];
     for (const [k, v] of this.docs.entries()) {
       if (k.startsWith(collectionPath)) {
