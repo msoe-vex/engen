@@ -1,0 +1,19 @@
+{
+  "name": "engineering-notebook-collab-service",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@engineering-notebook/shared": "file:../../packages/shared",
+    "@hocuspocus/server": "^4.9.0",
+    "firebase-admin": "^14.5.1",
+    "yjs": "^13.6.33",
+    "tsx": "^4.23.15"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6"
+  }
+}

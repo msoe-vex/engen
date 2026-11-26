@@ -1,0 +1,180 @@
+export type CompileSnapshotMeta = {
+  orgId: string;
+  notebookId: string;
+  schema?: string;
+  notebook: {
+    id: string;
+    name?: string;
+    title?: string;
+    subtitle?: string;
+    logoAssetId?: string;
+    phases?: Record<
+      string,
+      { name: string; description?: string; iconName?: string; color?: string; order: number }
+    >;
+  };
+  members: Array<{
+    id: string;
+    name: string;
+    role?: string;
+    order?: number;
+    imageAssetId?: string;
+  }>;
+  entries: Record<
+    string,
+    {
+      title?: string;
+      authors?: string[];
+      phase?: string | null;
+      createdAt?: string;
+      updatedAt?: string;
+      date?: string;
+      order?: number;
+      isTemplate?: boolean;
+      assetIds?: string[];
+      deletedAt?: string | null;
+      tipTapGcsPath: string;
+    }
+  >;
+  /** Path refs only — worker downloads bytes. */
+  assets: Record<string, { contentType: string; gcsPath: string }>;
+};
+
+/** Hydrated for LaTeX workspace build. */
+export type CompileSnapshot = {
+  orgId: string;
+  notebookId: string;
+  notebook: CompileSnapshotMeta["notebook"];
+  members: CompileSnapshotMeta["members"];
+  entries: Record<
+    string,
+    Omit<CompileSnapshotMeta["entries"][string], "tipTapGcsPath"> & { tipTap: unknown }
+  >;
+  assets: Record<string, { contentType: string; bytes: Buffer }>;
+};
+
+function coreBase(): string {
+  return (process.env.CORE_API_URL || "http://core:8080").replace(/\/$/, "");
+}
+
+function internalHeaders(extra?: Record<string, string>): Record<string, string> {
+  const headers: Record<string, string> = { ...(extra || {}) };
+  const secret = process.env.INTERNAL_SERVICE_SECRET;
+  if (secret) headers["x-internal-secret"] = secret;
+  return headers;
+}
+
+export async function fetchCompileSnapshotMeta(
+  orgId: string,
+  notebookId: string
+): Promise<CompileSnapshotMeta> {
+  const url = `${coreBase()}/internal/compile/snapshot?orgId=${encodeURIComponent(orgId)}&notebookId=${encodeURIComponent(notebookId)}`;
+  const res = await fetch(url, { headers: internalHeaders({ Accept: "application/json" }) });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`snapshot ${res.status}: ${text}`);
+  }
+  return (await res.json()) as CompileSnapshotMeta;
+}
+
+/** @deprecated alias — prefer fetchCompileSnapshotMeta + hydrateCompileSnapshot */
+export async function fetchCompileSnapshot(
+  orgId: string,
+  notebookId: string
+): Promise<CompileSnapshotMeta> {
+  return fetchCompileSnapshotMeta(orgId, notebookId);
+}
+
+export async function fetchStorageObject(
+  orgId: string,
+  notebookId: string,
+  key: string
+): Promise<Buffer | null> {
+  const q = new URLSearchParams({ orgId, notebookId, key });
+  const url = `${coreBase()}/internal/storage/object?${q.toString()}`;
+  const res = await fetch(url, { headers: internalHeaders() });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`storage object ${res.status}: ${text.slice(0, 200)}`);
+  }
+  return Buffer.from(await res.arrayBuffer());
+}
+
+export async function fetchAssetRef(
+  orgId: string,
+  notebookId: string,
+  assetId: string
+): Promise<{ contentType: string; gcsPath: string }> {
+  const q = new URLSearchParams({ orgId, notebookId, assetId });
+  const url = `${coreBase()}/internal/compile/asset-ref?${q.toString()}`;
+  const res = await fetch(url, { headers: internalHeaders({ Accept: "application/json" }) });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`asset-ref ${res.status}: ${text.slice(0, 200)}`);
+  }
+  return (await res.json()) as { contentType: string; gcsPath: string };
+}
+
+export async function uploadCompileExport(
+  orgId: string,
+  notebookId: string,
+  pdf: Buffer,
+  jobId?: string
+): Promise<{ createdAt: string; exportId?: string }> {
+  const q = new URLSearchParams({ orgId, notebookId });
+  if (jobId) q.set("jobId", jobId);
+  const url = `${coreBase()}/internal/compile/export?${q.toString()}`;
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: internalHeaders({ "content-type": "application/pdf" }),
+    body: new Uint8Array(pdf),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || `export upload ${res.status}`);
+  }
+  const data = (await res.json()) as { createdAt?: string; exportId?: string };
+  return {
+    createdAt: data.createdAt || new Date().toISOString(),
+    exportId: data.exportId,
+  };
+}
+
+export async function reportCompileFailed(
+  orgId: string,
+  notebookId: string,
+  error: string,
+  jobId?: string
+): Promise<void> {
+  const url = `${coreBase()}/internal/compile/failed`;
+  await fetch(url, {
+    method: "POST",
+    headers: internalHeaders({ "content-type": "application/json" }),
+    body: JSON.stringify({ orgId, notebookId, error, jobId }),
+  }).catch(() => undefined);
+}
+
+export async function reportCompileProgress(
+  orgId: string,
+  notebookId: string,
+  jobId: string,
+  status: string,
+  progress: number,
+  opts?: { stage?: string; detail?: string }
+): Promise<void> {
+  const url = `${coreBase()}/internal/compile/progress`;
+  await fetch(url, {
+    method: "POST",
+    headers: internalHeaders({ "content-type": "application/json" }),
+    body: JSON.stringify({
+      orgId,
+      notebookId,
+      jobId,
+      status,
+      progress,
+      stage: opts?.stage,
+      detail: opts?.detail,
+    }),
+  }).catch(() => undefined);
+}

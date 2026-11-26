@@ -1,0 +1,1181 @@
+"use client";
+
+import React, { useState, useEffect, useMemo, memo, useCallback, useRef } from "react";
+import {
+  Hash, User, Briefcase, Image as ImageIcon,
+  X, Camera, Building2, Plus, Trash2, Users,
+  Palette, Shapes, Search, GripVertical, LucideIcon, Loader2
+} from "lucide-react";
+import * as LucideIcons from "lucide-react";
+import Image from "next/image";
+import { createPortal } from "react-dom";
+
+import {
+  DndContext,
+  closestCenter,
+  closestCorners,
+  DragEndEvent,
+  DragStartEvent,
+  DragOverlay,
+  DraggableAttributes,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  rectSortingStrategy,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { TeamMetadata, TeamMember, ProjectPhase, Identified, sortedMembers, sortedPhases, recordFromIdentified } from "@/lib/notebook/metadata";
+import { DEFAULT_PHASES, AVAILABLE_ICONS } from "@/lib/notebook/phases";
+import { fetchDefaultPhases } from "@/lib/notebook/defaultTemplates";
+import { generateUUID, formatDateMonthYear, compressImageToJpeg, getMimeTypeFromExtension } from "@/lib/utils";
+import { useAppDndSensors } from "@/lib/dnd/dndSensors";
+
+// ─── Sub-components for performance ──────────────────────────────────────────
+
+const PRESET_COLORS = [
+  "#3b82f6", // Blue
+  "#a855f7", // Purple
+  "#6366f1", // Indigo
+  "#f97316", // Orange
+  "#10b981", // Emerald
+  "#ec4899", // Pink
+  "#ef4444", // Red
+  "#eab308", // Yellow
+  "#06b6d4", // Cyan
+  "#14b8a6", // Teal
+  "#8b5cf6", // Violet
+  "#64748b", // Slate
+];
+
+const IconPicker = ({
+  currentIcon,
+  onSelect,
+  color,
+  onColorChange
+}: {
+  currentIcon: string,
+  onSelect: (iconName: string) => void,
+  color: string,
+  onColorChange: (color: string) => void
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const buttonRef = React.useRef<HTMLButtonElement>(null);
+  const [coords, setCoords] = useState({ top: 0, left: 0 });
+
+  const updateCoords = () => {
+    if (buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      const popupWidth = 272; // w-68
+      const popupHeight = 320;
+      
+      // Calculate top position and clamp to screen bounds
+      let top = rect.top + rect.height / 2 - popupHeight / 2;
+      top = Math.max(16, Math.min(top, window.innerHeight - popupHeight - 16));
+
+      // Calculate left position (prefer right of button, fallback to left if overflow)
+      let left = rect.right + 16;
+      if (left + popupWidth > window.innerWidth - 16) {
+        left = rect.left - popupWidth - 16;
+      }
+
+      setCoords({ top, left });
+    }
+  };
+
+  const filteredIcons = useMemo(() => {
+    const q = search.toLowerCase();
+    return AVAILABLE_ICONS.filter(i => i.toLowerCase().includes(q));
+  }, [search]);
+
+  const IconComp = (LucideIcons as unknown as Record<string, LucideIcon>)[currentIcon] || Shapes;
+
+  return (
+    <div className="relative shrink-0">
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => {
+          if (!isOpen) {
+            updateCoords();
+          }
+          setIsOpen(!isOpen);
+        }}
+        className="w-11 h-11 rounded-[14px] flex items-center justify-center border-2 transition-all cursor-pointer group hover:scale-105 active:scale-95 shadow-sm"
+        style={{ backgroundColor: `${color}15`, color: color, borderColor: `${color}30` }}
+        title="Customize Icon & Color"
+      >
+        <IconComp size={20} className="group-hover:rotate-12 transition-transform" />
+      </button>
+
+      {isOpen && createPortal(
+        <>
+          <div className="fixed inset-0 z-9998" onClick={() => setIsOpen(false)} />
+          <div
+            style={{
+              position: 'fixed',
+              top: coords.top,
+              left: coords.left,
+              zIndex: 9999
+            }}
+            className="w-68 bg-nb-surface border border-nb-outline-variant shadow-nb-2xl rounded-[20px] p-3.5 animate-in fade-in zoom-in-95 duration-150 space-y-3"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Color Section */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-[9px] font-black uppercase tracking-wider text-nb-on-surface-variant/50">Theme Color</label>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="color"
+                    value={color}
+                    onChange={e => onColorChange(e.target.value)}
+                    className="w-4 h-4 rounded border-0 p-0 cursor-pointer overflow-hidden bg-transparent shrink-0"
+                  />
+                  <span className="text-[9px] font-mono font-bold text-nb-on-surface-variant/70 uppercase">{color}</span>
+                </div>
+              </div>
+              <div className="grid grid-cols-6 gap-1.5">
+                {PRESET_COLORS.map(preset => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => onColorChange(preset)}
+                    className={`w-5 h-5 rounded-full transition-transform hover:scale-115 cursor-pointer flex items-center justify-center ${color.toLowerCase() === preset.toLowerCase() ? "ring-2 ring-nb-primary ring-offset-1" : ""}`}
+                    style={{ backgroundColor: preset }}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="border-t border-nb-outline-variant/30 pt-2.5">
+              <label className="block text-[9px] font-black uppercase tracking-wider text-nb-on-surface-variant/50 mb-2">Icon</label>
+              <div className="relative mb-2">
+                <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-nb-on-surface-variant/40" />
+                <input
+                  autoFocus
+                  type="text"
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder="Search icons..."
+                  className="w-full bg-nb-surface-low border border-nb-outline-variant/30 rounded-lg pl-8 pr-2 py-1.5 text-[10px] font-bold text-nb-on-surface focus:outline-none focus:ring-2 focus:ring-nb-primary/20 transition-all"
+                />
+              </div>
+              <div className="grid grid-cols-5 gap-1 max-h-36 overflow-y-auto custom-scrollbar pr-1">
+                {filteredIcons.map(iconName => {
+                  const PickerIcon = (LucideIcons as unknown as Record<string, LucideIcon>)[iconName] || Shapes;
+                  return (
+                    <button
+                      key={iconName}
+                      type="button"
+                      onClick={() => { onSelect(iconName); setIsOpen(false); }}
+                      className={`w-8 h-8 flex items-center justify-center rounded-md transition-all hover:scale-110 cursor-pointer ${currentIcon === iconName ? "bg-nb-primary text-white" : "bg-nb-surface-low border border-nb-outline-variant/20 text-nb-on-surface-variant hover:text-nb-primary hover:border-nb-primary"}`}
+                    >
+                      <PickerIcon size={14} />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </>,
+        document.body
+      )}
+    </div>
+  );
+};
+
+const TeamAssetImage = memo(({
+  src,
+  alt,
+  className = "object-cover",
+  fallbackIcon
+}: {
+  src?: string;
+  alt: string;
+  className?: string;
+  fallbackIcon: React.ReactNode;
+}) => {
+  const isDataUrl = Boolean(src?.startsWith("data:"));
+  const [asyncSrc, setAsyncSrc] = useState("");
+  const [isLoading, setIsLoading] = useState(!isDataUrl && Boolean(src));
+
+  const resolvedSrc = isDataUrl ? (src || "") : asyncSrc;
+
+  useEffect(() => {
+    let active = true;
+    if (!src || src.startsWith("data:")) {
+      return;
+    }
+
+    const load = async () => {
+      setIsLoading(true);
+      try {
+        const { store } = await import("@/lib/store");
+        // 1. Check in-memory session cache
+        if (store.assetCache.has(src)) {
+          const cached = store.assetCache.get(src)!;
+          if (active) {
+            setAsyncSrc(cached);
+            setIsLoading(false);
+          }
+          return;
+        }
+
+        // 2. Fetch on-demand
+        const b64 = await store.getAssetBase64(src);
+        if (b64 && active) {
+          const dataUrl = b64.startsWith("data:") ? b64 : `data:${getMimeTypeFromExtension(src)};base64,${b64}`;
+          setAsyncSrc(dataUrl);
+          setIsLoading(false);
+          return;
+        }
+      } catch (e) {
+        console.warn("Failed to load team asset:", src, e);
+      }
+
+      if (active) {
+        setIsLoading(false);
+      }
+    };
+
+    void load();
+    return () => { active = false; };
+  }, [src]);
+
+  if (!src) {
+    return <>{fallbackIcon}</>;
+  }
+
+  return (
+    <div className="relative w-full h-full flex items-center justify-center">
+      {isLoading && (
+        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-nb-surface-low/80 backdrop-blur-[2px] animate-pulse">
+          <Loader2 size={24} className="animate-spin text-nb-primary mb-1.5 opacity-80" />
+          <span className="text-[9px] font-bold text-nb-on-surface-variant/60 tracking-wider uppercase">Loading</span>
+        </div>
+      )}
+      {resolvedSrc ? (
+        <Image
+          src={resolvedSrc}
+          alt={alt}
+          fill
+          className={`${className} transition-opacity duration-300 ${isLoading ? "opacity-0" : "opacity-100"}`}
+          unoptimized
+        />
+      ) : (
+        !isLoading && fallbackIcon
+      )}
+    </div>
+  );
+});
+
+TeamAssetImage.displayName = "TeamAssetImage";
+
+const PhaseCard = memo(({
+  phase,
+  handlePhaseChange,
+  removePhase,
+  attributes,
+  listeners,
+  isOverlay = false
+}: {
+  phase: Identified<ProjectPhase>,
+  handlePhaseChange?: (id: string, field: keyof ProjectPhase, value: string) => void,
+  removePhase?: (id: string) => void,
+  attributes?: DraggableAttributes,
+  listeners?: Record<string, unknown>,
+  isOverlay?: boolean
+}) => {
+  const [localColor, setLocalColor] = useState(phase.color);
+  const [prevColor, setPrevColor] = useState(phase.color);
+  if (phase.color !== prevColor) {
+    setLocalColor(phase.color);
+    setPrevColor(phase.color);
+  }
+
+  return (
+    <div
+      className={`flex items-center gap-3 p-3.5 rounded-2xl bg-nb-surface border border-nb-outline-variant/60 hover:border-nb-primary/40 hover:shadow-nb-sm transition-all group w-full ${isOverlay ? 'shadow-nb-xl border-nb-primary ring-2 ring-nb-primary/10' : ''}`}
+    >
+      <div
+        {...attributes}
+        {...listeners}
+        className="p-1 rounded-lg text-nb-on-surface-variant/20 hover:text-nb-on-surface-variant/60 hover:bg-nb-surface-low cursor-grab active:cursor-grabbing transition-all shrink-0 touch-none"
+      >
+        <GripVertical size={14} />
+      </div>
+
+      <IconPicker
+        currentIcon={phase.iconName}
+        onSelect={(name) => handlePhaseChange?.(phase.id, "iconName", name)}
+        color={localColor}
+        onColorChange={(newColor) => {
+          setLocalColor(newColor);
+          handlePhaseChange?.(phase.id, "color", newColor);
+        }}
+      />
+
+      <div className="flex-1 min-w-0 space-y-1">
+        <input
+          type="text"
+          value={phase.name}
+          onChange={e => handlePhaseChange?.(phase.id, "name", e.target.value)}
+          placeholder="Phase Name"
+          className="w-full bg-transparent border-none p-0 text-xs font-black text-nb-on-surface focus:outline-none placeholder:text-nb-on-surface-variant/20 tracking-tight"
+        />
+        <input
+          type="text"
+          value={phase.description}
+          onChange={e => handlePhaseChange?.(phase.id, "description", e.target.value)}
+          placeholder="Describe what happens in this phase..."
+          className="w-full bg-transparent border-none p-0 text-[10px] font-medium text-nb-on-surface-variant focus:outline-none placeholder:text-nb-on-surface-variant/20 leading-relaxed whitespace-nowrap overflow-x-auto"
+        />
+      </div>
+
+      <button
+        type="button"
+        onClick={() => removePhase?.(phase.id)}
+        className="p-2 rounded-lg text-nb-on-surface-variant/40 hover:text-red-500 hover:bg-red-50 transition-all cursor-pointer"
+        title="Remove Phase"
+      >
+        <Trash2 size={16} />
+      </button>
+    </div>
+  );
+});
+
+PhaseCard.displayName = "PhaseCard";
+
+const MemberCard = memo(({
+  member,
+  handleMemberChange,
+  removeMember,
+  attributes,
+  listeners,
+  isOverlay = false
+}: {
+  member: Identified<TeamMember>,
+  handleMemberChange?: (id: string, field: keyof TeamMember, value: string) => void,
+  removeMember?: (id: string) => void,
+  attributes?: DraggableAttributes,
+  listeners?: Record<string, unknown>,
+  isOverlay?: boolean
+}) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const dataUrl = reader.result as string;
+      try {
+        const compressed = await compressImageToJpeg(dataUrl, 720, 0.8);
+        handleMemberChange?.(member.id, "image", compressed.dataUrl);
+        handleMemberChange?.(member.id, "imageOriginal", dataUrl);
+      } catch (err) {
+        console.warn('Image compress failed, using original', err);
+        handleMemberChange?.(member.id, "image", dataUrl);
+        handleMemberChange?.(member.id, "imageOriginal", dataUrl);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  return (
+    <div
+      className={`group flex flex-col items-center gap-5 p-6 rounded-4xl bg-nb-surface border border-nb-outline-variant hover:border-nb-primary/30 hover:shadow-nb-xl transition-all relative w-full ${isOverlay ? 'shadow-nb-2xl border-nb-primary ring-2 ring-nb-primary/10' : ''}`}
+    >
+      <div
+        {...attributes}
+        {...listeners}
+        className="absolute left-4 top-4 p-2 rounded-lg text-nb-on-surface-variant/20 hover:text-nb-on-surface-variant/60 hover:bg-nb-surface-low cursor-grab active:cursor-grabbing transition-all shrink-0 touch-none"
+      >
+        <GripVertical size={16} />
+      </div>
+
+      <button
+        onClick={() => removeMember?.(member.id)}
+        className="absolute right-4 top-4 p-2 rounded-xl text-nb-on-surface-variant/20 hover:text-red-500 hover:bg-red-50 transition-all cursor-pointer"
+        title="Remove Member"
+      >
+        <Trash2 size={16} />
+      </button>
+
+      {/* Member Avatar */}
+      <div className="relative mt-2">
+        <div className="w-50 h-60 rounded-4xl bg-nb-surface-low border-2 border-nb-outline-variant/30 overflow-hidden flex items-center justify-center shadow-inner relative">
+          <TeamAssetImage
+            src={member.image}
+            alt={member.name || "Member"}
+            className="object-cover"
+            fallbackIcon={<User size={48} className="text-nb-on-surface-variant/10" />}
+          />
+        </div>
+
+        <div className="absolute -bottom-2 -right-2 flex flex-col gap-1">
+          {member.image && (
+            <button
+              onClick={() => {
+                handleMemberChange?.(member.id, "image", "");
+                handleMemberChange?.(member.id, "imageOriginal", "");
+              }}
+              className="p-2 rounded-xl bg-red-500 text-white shadow-lg shadow-red-500/20 hover:bg-red-600 cursor-pointer transition-colors"
+              title="Remove Image"
+            >
+              <X size={12} />
+            </button>
+          )}
+          <label className="p-2 rounded-xl bg-nb-surface border border-nb-outline-variant shadow-lg text-nb-on-surface-variant hover:text-nb-primary cursor-pointer transition-colors">
+            <Camera size={12} />
+            <input
+              type="file"
+              className="hidden"
+              accept="image/*"
+              onChange={handleImageUpload}
+            />
+          </label>
+        </div>
+      </div>
+
+      {/* Member Info */}
+      <div className="w-full space-y-2.5">
+        <div className="relative">
+          <User size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-nb-on-surface-variant/30" />
+          <input
+            type="text"
+            value={member.name}
+            onChange={e => handleMemberChange?.(member.id, "name", e.target.value)}
+            placeholder="Member Name"
+            className="w-full bg-nb-surface-low border border-nb-outline-variant/40 rounded-[14px] pl-10 pr-3 py-2 text-xs font-bold text-nb-on-surface focus:outline-none focus:ring-2 focus:ring-nb-primary/10 focus:border-nb-primary transition-all text-center"
+          />
+        </div>
+        <div className="relative">
+          <Briefcase size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-nb-on-surface-variant/30" />
+          <input
+            type="text"
+            value={member.role}
+            onChange={e => handleMemberChange?.(member.id, "role", e.target.value)}
+            placeholder="Role/Title"
+            className="w-full bg-nb-surface-low border border-nb-outline-variant/40 rounded-[14px] pl-10 pr-3 py-2 text-[11px] font-bold text-nb-on-surface-variant focus:outline-none focus:ring-2 focus:ring-nb-primary/10 focus:border-nb-primary transition-all text-center"
+          />
+        </div>
+      </div>
+    </div>
+  );
+});
+
+MemberCard.displayName = "MemberCard";
+
+const MemberRow = memo(({
+  member,
+  handleMemberChange,
+  removeMember
+}: {
+  member: Identified<TeamMember>,
+  handleMemberChange: (id: string, field: keyof TeamMember, value: string) => void,
+  removeMember: (id: string) => void
+}) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging
+  } = useSortable({ id: member.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition: transition || 'transform 150ms cubic-bezier(0.2, 0, 0, 1), opacity 150ms ease',
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`group/row ${isDragging ? 'z-100' : ''}`}
+    >
+      <div className={`transition-all ${isDragging ? 'opacity-0 duration-0' : 'opacity-100 duration-200 delay-150'}`}>
+        <MemberCard
+          member={member}
+          handleMemberChange={handleMemberChange}
+          removeMember={removeMember}
+          attributes={attributes}
+          listeners={listeners}
+        />
+      </div>
+    </div>
+  );
+});
+
+MemberRow.displayName = "MemberRow";
+
+const PhaseRow = memo(({
+  phase,
+  handlePhaseChange,
+  removePhase
+}: {
+  phase: Identified<ProjectPhase>,
+  handlePhaseChange: (id: string, field: keyof ProjectPhase, value: string) => void,
+  removePhase: (id: string) => void
+}) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging
+  } = useSortable({ id: phase.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition: transition || 'transform 150ms cubic-bezier(0.2, 0, 0, 1), opacity 150ms ease',
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`group/row ${isDragging ? 'z-100' : ''}`}
+    >
+      <div className={`transition-all ${isDragging ? 'opacity-0 duration-0' : 'opacity-100 duration-200 delay-150'}`}>
+        <PhaseCard
+          phase={phase}
+          handlePhaseChange={handlePhaseChange}
+          removePhase={removePhase}
+          attributes={attributes}
+          listeners={listeners}
+        />
+      </div>
+    </div>
+  );
+});
+
+PhaseRow.displayName = "PhaseRow";
+
+import { useWorkspace } from "@/hooks/useWorkspace";
+
+interface TeamEditorProps {
+  onClose: () => void;
+  initialTab?: "identity" | "members" | "phases";
+  onTabChange?: (tab: "identity" | "members" | "phases") => void;
+}
+
+export default function TeamEditor({
+  onClose,
+  initialTab = "identity",
+  onTabChange
+}: TeamEditorProps) {
+  const {
+    metadata,
+    saveTeam,
+    setPendingSave,
+    isDiscarding
+  } = useWorkspace();
+
+type TeamForm = Omit<TeamMetadata, "members"> & { members: Identified<TeamMember>[] };
+
+  const initialData = useMemo((): TeamForm => {
+    const data = metadata.team || { teamName: "", teamNumber: "", organization: "", logo: "", logoOriginal: "", members: {}, startDate: "", endDate: "", autoCalculateDates: true };
+    return {
+      ...data,
+      startDate: data.startDate || "",
+      endDate: data.endDate || "",
+      autoCalculateDates: data.autoCalculateDates ?? true,
+      members: sortedMembers(data.members)
+    };
+  }, [metadata.team]);
+
+  const initialPhases = useMemo(() => sortedPhases(metadata.phases || DEFAULT_PHASES), [metadata.phases]);
+
+  const [teamData, setTeamData] = useState<TeamForm>(initialData);
+  const [phases, setPhases] = useState<Identified<ProjectPhase>[]>(initialPhases);
+  const activeTab = initialTab;
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [dragOverlayWidth, setDragOverlayWidth] = useState<number | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+
+  const autoTimeline = useMemo(() => {
+    const regularEntries = Object.values(metadata.entries)
+      .filter(e => !e.isTemplate && Boolean(e.date));
+
+    const entryDates = regularEntries
+      .map(e => e.date)
+      .sort();
+
+    return {
+      start: formatDateMonthYear(entryDates[0]),
+      end: formatDateMonthYear(entryDates[entryDates.length - 1])
+    };
+  }, [metadata.entries]);
+  // use global saving state from store
+
+  const hasChanges = useMemo(() => {
+    return JSON.stringify(teamData) !== JSON.stringify(initialData) ||
+           JSON.stringify(phases) !== JSON.stringify(initialPhases);
+  }, [teamData, initialData, phases, initialPhases]);
+
+  const persistTeam = useCallback((data: TeamForm, nextPhases: Identified<ProjectPhase>[]) => {
+    return saveTeam(
+      { ...data, members: recordFromIdentified(data.members) },
+      recordFromIdentified(nextPhases)
+    );
+  }, [saveTeam]);
+
+  const sensors = useAppDndSensors(sortableKeyboardCoordinates);
+
+  useEffect(() => {
+    if (isDiscarding) {
+      setPendingSave(false);
+      return;
+    }
+    if (hasChanges) {
+      setPendingSave(true);
+    }
+  }, [hasChanges, isDiscarding, setPendingSave]);
+
+  useEffect(() => {
+    if (isDiscarding) return;
+    const timer = setTimeout(() => {
+      if (hasChanges && !isDiscarding) {
+        persistTeam(teamData, phases).then(() => {
+          setSaveSuccess(true);
+          setPendingSave(false);
+        }).catch(() => setPendingSave(false));
+      }
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [teamData, phases, hasChanges, isDiscarding, persistTeam, setPendingSave]);
+
+  const latestDataRef = useRef({ teamData, phases, hasChanges });
+  useEffect(() => {
+    latestDataRef.current = { teamData, phases, hasChanges };
+  }, [teamData, phases, hasChanges]);
+
+  // Save immediately when switching tabs
+  const lastTabRef = useRef(initialTab);
+  useEffect(() => {
+    if (initialTab !== lastTabRef.current) {
+      const { teamData: latestData, phases: latestPhases, hasChanges: changesExist } = latestDataRef.current;
+      if (changesExist && !isDiscarding) {
+        persistTeam(latestData, latestPhases);
+        setPendingSave(false);
+      }
+      lastTabRef.current = initialTab;
+    }
+  }, [initialTab, isDiscarding, persistTeam, setPendingSave]);
+
+  useEffect(() => {
+    return () => {
+      const { teamData: latestData, phases: latestPhases, hasChanges: changesExist } = latestDataRef.current;
+      if (changesExist && !isDiscarding) {
+        persistTeam(latestData, latestPhases);
+        setPendingSave(false);
+      }
+    };
+  }, [isDiscarding, persistTeam, setPendingSave]);
+
+  useEffect(() => {
+    if (saveSuccess) {
+      const timer = setTimeout(() => setSaveSuccess(false), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [saveSuccess]);
+
+  // Keep track of baseline initialData/initialPhases to detect external database changes (e.g. discarding pending changes)
+  const lastInitialDataRef = useRef(initialData);
+  const lastInitialPhasesRef = useRef(initialPhases);
+
+  // Sync state with latest metadata ONLY when discarding pending changes externally
+  useEffect(() => {
+    if (isDiscarding) {
+      lastInitialDataRef.current = initialData;
+      const id = requestAnimationFrame(() => {
+        setTeamData(initialData);
+        setPendingSave(false);
+      });
+      return () => cancelAnimationFrame(id);
+    }
+  }, [initialData, isDiscarding, setPendingSave]);
+
+  useEffect(() => {
+    const initialPhasesStr = JSON.stringify(initialPhases);
+    const lastInitialPhasesStr = JSON.stringify(lastInitialPhasesRef.current);
+
+    if (initialPhasesStr !== lastInitialPhasesStr || isDiscarding) {
+      lastInitialPhasesRef.current = initialPhases;
+      const id = requestAnimationFrame(() => {
+        setPhases(initialPhases);
+        setPendingSave(false);
+      });
+      return () => cancelAnimationFrame(id);
+    }
+  }, [initialPhases, isDiscarding, setPendingSave]);
+
+  const handleFieldChange = <K extends keyof TeamMetadata>(field: K, value: TeamMetadata[K]) => {
+    setTeamData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleTeamLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const dataUrl = reader.result as string;
+      try {
+        const compressed = await compressImageToJpeg(dataUrl, 720, 0.8);
+        handleFieldChange("logo", compressed.dataUrl);
+        handleFieldChange("logoOriginal", dataUrl);
+      } catch (err) {
+        console.warn("Logo compress failed, using original", err);
+        handleFieldChange("logo", dataUrl);
+        handleFieldChange("logoOriginal", dataUrl);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleMemberChange = (id: string, field: keyof TeamMember, value: string) => {
+    setTeamData(prev => {
+      const index = prev.members.findIndex(m => m.id === id);
+      if (index === -1) return prev;
+      const newMembers = [...prev.members];
+      newMembers[index] = { ...newMembers[index], [field]: value };
+      return { ...prev, members: newMembers };
+    });
+  };
+
+  const addMember = () => {
+    setTeamData(prev => ({
+      ...prev,
+      members: [...prev.members, { id: generateUUID(), name: "", role: "", order: prev.members.length, image: "", imageOriginal: "" }]
+    }));
+  };
+
+  const removeMember = (id: string) => {
+    setTeamData(prev => ({
+      ...prev,
+      members: prev.members.filter(m => m.id !== id)
+    }));
+  };
+
+  const handlePhaseChange = useCallback((id: string, field: keyof ProjectPhase, value: string) => {
+    setPhases(prev => {
+      const index = prev.findIndex(p => p.id === id);
+      if (index === -1) return prev;
+
+      // Prevent duplicate names
+      if (field === "name" && prev.some((p, i) => i !== index && p.name === value)) {
+        return prev;
+      }
+
+      const newPhases = [...prev];
+      newPhases[index] = { ...newPhases[index], [field]: value };
+      return newPhases;
+    });
+  }, []);
+
+  const addPhase = useCallback(() => {
+    setPhases(prev => {
+      const nextOrder = prev.length;
+      return [...prev, {
+        id: generateUUID(),
+        order: nextOrder,
+        name: "New Phase",
+        description: "",
+        iconName: "Shapes",
+        color: "#94a3b8"
+      }];
+    });
+  }, []);
+
+  const removePhase = useCallback((id: string) => {
+    setPhases(prev => {
+      const filtered = prev.filter(p => p.id !== id);
+      return filtered.map((p, i) => ({ ...p, order: i }));
+    });
+  }, []);
+
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveId(event.active.id as string);
+    setDragOverlayWidth(event.active.rect.current.initial?.width ?? null);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      if (activeTab === "phases") {
+        setPhases((items) => {
+          const oldIndex = items.findIndex(p => p.id === active.id);
+          const newIndex = items.findIndex(p => p.id === over.id);
+          const moved = arrayMove(items, oldIndex, newIndex);
+          // Re-assign indices to match the new order (1-based)
+          return moved.map((p, i) => ({ ...p, order: i }));
+        });
+      } else if (activeTab === "members") {
+        setTeamData(prev => {
+          const oldIndex = prev.members.findIndex(m => m.id === active.id);
+          const newIndex = prev.members.findIndex(m => m.id === over.id);
+          const moved = arrayMove(prev.members, oldIndex, newIndex);
+          return { ...prev, members: moved };
+        });
+      }
+    }
+    setActiveId(null);
+    setDragOverlayWidth(null);
+  };
+
+  const restoreDefaultPhases = useCallback(async () => {
+    const defaultPhases = await fetchDefaultPhases();
+    setPhases(sortedPhases(defaultPhases || DEFAULT_PHASES));
+  }, []);
+
+  return (
+    <div className="flex flex-col h-full bg-nb-bg animate-in fade-in duration-300">
+      {/* Header */}
+      <div className="flex flex-col bg-nb-surface border-b border-nb-outline-variant shadow-nb-sm shrink-0">
+        <div className="flex items-center justify-between px-8 h-16">
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 rounded-xl bg-nb-primary/10 text-nb-primary flex items-center justify-center">
+              <Users size={20} />
+            </div>
+            <div>
+              <h1 className="text-sm md:text-lg font-black text-nb-on-surface tracking-tight leading-tight">Team Configuration</h1>
+              <div className="hidden sm:flex items-center gap-2 text-[10px] font-black tracking-[0.2em] text-nb-on-surface-variant/40 uppercase">
+                <span>Identity, Team, and Design Process</span>
+              </div>
+            </div>
+          </div>
+
+
+
+          <div className="flex items-center gap-4">
+            <button
+              onClick={onClose}
+              className="p-2 rounded-lg hover:bg-nb-surface-low text-nb-on-surface-variant hover:text-nb-on-surface transition-colors cursor-pointer"
+              title="Close Team Configuration"
+            >
+              <X size={20} />
+            </button>
+          </div>
+        </div>
+
+        {/* Navigation Tabs */}
+        <div className="flex justify-center pb-4">
+          <div className="flex gap-2 p-1 bg-nb-surface-low rounded-2xl border border-nb-outline-variant/20 w-fit">
+            <button
+              onClick={() => onTabChange?.("identity")}
+              className={`flex items-center gap-2 px-4 md:px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all cursor-pointer ${activeTab === "identity" ? "bg-nb-surface text-nb-primary shadow-sm" : "text-nb-on-surface-variant hover:text-nb-on-surface"}`}
+            >
+              <Building2 size={14} />
+              <span className="hidden xs:inline">Identity</span>
+            </button>
+            <button
+              onClick={() => onTabChange?.("members")}
+              className={`flex items-center gap-2 px-4 md:px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all cursor-pointer ${activeTab === "members" ? "bg-nb-surface text-nb-primary shadow-sm" : "text-nb-on-surface-variant hover:text-nb-on-surface"}`}
+            >
+              <Users size={14} />
+              <span className="hidden xs:inline">Roster</span>
+            </button>
+            <button
+              onClick={() => onTabChange?.("phases")}
+              className={`flex items-center gap-2 px-4 md:px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all cursor-pointer ${activeTab === "phases" ? "bg-nb-surface text-nb-primary shadow-sm" : "text-nb-on-surface-variant hover:text-nb-on-surface"}`}
+            >
+              <Palette size={14} />
+              <span className="hidden xs:inline">Phases</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto custom-scrollbar p-8">
+        <div className="max-w-4xl mx-auto space-y-12 pb-12">
+
+          {activeTab === "identity" && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-in slide-in-from-bottom-4 duration-500">
+              {/* Left Column: Info */}
+              <div className="space-y-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-nb-on-surface-variant ml-1">Team Name</label>
+                  <div className="relative">
+                    <Users size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-nb-on-surface-variant/40" />
+                    <input
+                      type="text"
+                      value={teamData.teamName}
+                      onChange={e => handleFieldChange("teamName", e.target.value)}
+                      placeholder="e.g. Raider Robotics"
+                      className="w-full bg-nb-surface border border-nb-outline-variant rounded-2xl pl-12 pr-4 py-3.5 text-sm font-bold text-nb-on-surface focus:outline-none focus:ring-2 focus:ring-nb-primary/20 focus:border-nb-primary transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-nb-on-surface-variant ml-1">Team Number</label>
+                  <div className="relative">
+                    <Hash size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-nb-on-surface-variant/40" />
+                    <input
+                      type="text"
+                      value={teamData.teamNumber}
+                      onChange={e => handleFieldChange("teamNumber", e.target.value)}
+                      placeholder="e.g. 1234A"
+                      className="w-full bg-nb-surface border border-nb-outline-variant rounded-2xl pl-12 pr-4 py-3.5 text-sm font-bold text-nb-on-surface focus:outline-none focus:ring-2 focus:ring-nb-primary/20 focus:border-nb-primary transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase tracking-[0.2em] text-nb-on-surface-variant ml-1">Organization</label>
+                  <div className="relative">
+                    <Building2 size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-nb-on-surface-variant/40" />
+                    <input
+                      type="text"
+                      value={teamData.organization}
+                      onChange={e => handleFieldChange("organization", e.target.value)}
+                      placeholder="e.g. Milwaukee School of Engineering"
+                      className="w-full bg-nb-surface border border-nb-outline-variant rounded-2xl pl-12 pr-4 py-3.5 text-sm font-bold text-nb-on-surface focus:outline-none focus:ring-2 focus:ring-nb-primary/20 focus:border-nb-primary transition-all"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between ml-1">
+                    <label className="text-[10px] font-black uppercase tracking-[0.2em] text-nb-on-surface-variant">Project Timeline</label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const isAuto = teamData.autoCalculateDates ?? true;
+                        if (isAuto) {
+                          // Switching to custom mode
+                          setTeamData(prev => ({
+                            ...prev,
+                            autoCalculateDates: false,
+                            startDate: prev.startDate || autoTimeline.start || "",
+                            endDate: prev.endDate || autoTimeline.end || ""
+                          }));
+                        } else {
+                          // Switching to auto mode
+                          setTeamData(prev => ({
+                            ...prev,
+                            autoCalculateDates: true,
+                            startDate: autoTimeline.start || "",
+                            endDate: autoTimeline.end || ""
+                          }));
+                        }
+                      }}
+                      className="text-[10px] font-bold text-nb-primary hover:underline cursor-pointer flex items-center gap-1"
+                    >
+                      <span>{!(teamData.autoCalculateDates ?? true) ? "Switch to Auto-Calculate" : "Set Custom Dates"}</span>
+                    </button>
+                  </div>
+
+                  {!(teamData.autoCalculateDates ?? true) ? (
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-bold text-nb-on-surface-variant/70 ml-1">Start Date</label>
+                          <input
+                            type="text"
+                            value={teamData.startDate || ""}
+                            onChange={e => handleFieldChange("startDate", e.target.value)}
+                            placeholder="e.g. September 2025"
+                            className="w-full bg-nb-surface border border-nb-outline-variant rounded-xl px-3.5 py-2.5 text-xs font-bold text-nb-on-surface focus:outline-none focus:ring-2 focus:ring-nb-primary/20 focus:border-nb-primary transition-all"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[9px] font-bold text-nb-on-surface-variant/70 ml-1">End Date</label>
+                          <input
+                            type="text"
+                            value={teamData.endDate || ""}
+                            onChange={e => handleFieldChange("endDate", e.target.value)}
+                            placeholder="e.g. April 2026"
+                            className="w-full bg-nb-surface border border-nb-outline-variant rounded-xl px-3.5 py-2.5 text-xs font-bold text-nb-on-surface focus:outline-none focus:ring-2 focus:ring-nb-primary/20 focus:border-nb-primary transition-all"
+                          />
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-nb-on-surface-variant/60 italic ml-1">Custom season range printed on the cover page.</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <div className="flex gap-4">
+                        <div className="flex-1 bg-nb-surface-low border border-nb-outline-variant/30 rounded-2xl p-4">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-nb-on-surface-variant/40 mb-1">Start Date</p>
+                          <p className="text-sm font-black text-nb-on-surface">{autoTimeline.start || "No entries"}</p>
+                        </div>
+                        <div className="flex-1 bg-nb-surface-low border border-nb-outline-variant/30 rounded-2xl p-4">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-nb-on-surface-variant/40 mb-1">End Date</p>
+                          <p className="text-sm font-black text-nb-on-surface">{autoTimeline.end || "No entries"}</p>
+                        </div>
+                      </div>
+                      <p className="text-[10px] text-nb-on-surface-variant/60 italic ml-1">Automatically calculated from the earliest and latest entry dates (excluding templates).</p>
+                    </div>
+                  )}
+                </div>
+
+              </div>
+
+              {/* Right Column: Logo */}
+              <div className="flex flex-col items-center justify-center p-8 rounded-4xl bg-nb-surface-low border border-nb-outline-variant/30 space-y-6">
+                <div className="relative group w-full max-w-70 flex justify-center">
+                  <div className="w-full aspect-square rounded-[36px] bg-nb-surface border-2 border-nb-outline-variant/30 shadow-nb-sm overflow-hidden flex items-center justify-center relative p-3">
+                    <TeamAssetImage
+                      src={teamData.logo}
+                      alt="Logo"
+                      className="object-contain p-2"
+                      fallbackIcon={<ImageIcon size={56} className="text-nb-on-surface-variant/20" />}
+                    />
+                  </div>
+                  <label className="absolute -bottom-2 right-1 p-3.5 rounded-2xl bg-nb-primary text-white shadow-lg shadow-nb-primary/30 cursor-pointer hover:scale-105 transition-transform z-20">
+                    <Camera size={20} />
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept="image/*"
+                      onChange={handleTeamLogoUpload}
+                    />
+                  </label>
+                </div>
+                <div className="text-center">
+                  <h3 className="text-sm font-black text-nb-on-surface uppercase tracking-widest">Team Logo</h3>
+                  <p className="text-[10px] text-nb-on-surface-variant font-medium mt-1">Appears on the cover page</p>
+                </div>
+                {teamData.logo && (
+                  <button
+                    onClick={() => {
+                      handleFieldChange("logo", "");
+                      handleFieldChange("logoOriginal", "");
+                    }}
+                    className="text-[10px] font-black text-red-500 uppercase tracking-widest hover:underline cursor-pointer"
+                  >
+                    Remove Logo
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === "members" && (
+            <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCorners}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+              >
+                <SortableContext
+                  items={teamData.members.map(m => m.id)}
+                  strategy={rectSortingStrategy}
+                >
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {teamData.members.map((member) => (
+                      <MemberRow
+                        key={member.id}
+                        member={member}
+                        handleMemberChange={handleMemberChange}
+                        removeMember={removeMember}
+                      />
+                    ))}
+
+                    <button
+                      onClick={addMember}
+                      className="flex flex-col items-center justify-center p-8 rounded-[28px] border-2 border-dashed border-nb-outline-variant/30 text-nb-on-surface-variant hover:border-nb-primary hover:text-nb-primary hover:bg-nb-primary/5 transition-all group cursor-pointer"
+                    >
+                      <div className="w-10 h-10 rounded-full bg-nb-outline-variant/10 flex items-center justify-center mb-2 group-hover:scale-110 transition-transform">
+                        <Plus size={20} />
+                      </div>
+                      <span className="text-xs font-black uppercase tracking-widest">Add Member</span>
+                    </button>
+                  </div>
+                </SortableContext>
+                <DragOverlay>
+                  {activeId && teamData.members.find(m => m.id === activeId) ? (
+                    <div style={dragOverlayWidth ? { width: dragOverlayWidth } : undefined}>
+                      <MemberCard
+                        member={teamData.members.find(m => m.id === activeId)!}
+                        isOverlay
+                      />
+                    </div>
+                  ) : null}
+                </DragOverlay>
+              </DndContext>
+            </div>
+          )}
+
+          {activeTab === "phases" && (
+            <div className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+              >
+                <SortableContext
+                  items={phases.map(p => p.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <div className="flex gap-6">
+                    {/* Static Numbers Column */}
+                    <div className="flex flex-col gap-3 py-1">
+                      {phases.map((_, i) => (
+                        <div key={i} className="w-10 h-18.5 flex items-center justify-center">
+                          <span className="text-2xl font-black text-nb-on-surface-variant/10 select-none">
+                            {i + 1}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Sortable List */}
+                    <div className="flex-1 space-y-3">
+                      {phases.map((p) => (
+                        <PhaseRow
+                          key={p.id}
+                          phase={p}
+                          handlePhaseChange={handlePhaseChange}
+                          removePhase={removePhase}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </SortableContext>
+                <DragOverlay>
+                  {activeId ? (
+                    <div style={dragOverlayWidth ? { width: dragOverlayWidth } : undefined}>
+                      <PhaseCard
+                        phase={phases.find(p => p.id === activeId)!}
+                        isOverlay
+                      />
+                    </div>
+                  ) : null}
+                </DragOverlay>
+              </DndContext>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4">
+                <button
+                  onClick={addPhase}
+                  className="flex items-center justify-center gap-3 p-4 rounded-2xl border-2 border-dashed border-nb-outline-variant/30 text-nb-on-surface-variant hover:border-nb-primary hover:text-nb-primary hover:bg-nb-primary/5 transition-all group cursor-pointer"
+                >
+                  <Plus size={18} />
+                  <span className="text-xs font-black uppercase tracking-widest">Add Phase</span>
+                </button>
+                <button
+                  onClick={restoreDefaultPhases}
+                  className="flex items-center justify-center gap-3 p-4 rounded-2xl border-2 border-dashed border-nb-outline-variant/30 text-nb-on-surface-variant hover:border-nb-outline hover:text-nb-on-surface hover:bg-nb-surface-low transition-all group cursor-pointer"
+                >
+                  <Palette size={18} />
+                  <span className="text-xs font-black uppercase tracking-widest">Restore Defaults</span>
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,16 @@
+# Architecture decision records
+
+| ADR | Title |
+| --- | --- |
+| [ADR-001](./ADR-001-gcp-only-sync.md) | GCP-only live sync |
+| [ADR-002](./ADR-002-zip-lww-backup.md) | ZIP as LWW backup (not sync) |
+| [ADR-003](./ADR-003-byok-keys-local.md) | BYOK keys stay local |
+| [ADR-004](./ADR-004-agents-genai-gateway.md) | GenAI orchestration (website) |
+| [ADR-005](./ADR-005-genai-in-core.md) | GenAI tools / Vertex in Core |
+| [ADR-006](./ADR-006-compile-job.md) | Async notebook jobs (compile first) |
+| [ADR-007](./ADR-007-python-langgraph-judge.md) | Python LangGraph judge worker |
+| [ADR-008](./ADR-008-job-dispatch-evolution.md) | Job dispatch evolution (HTTP → Pub/Sub; Tasks optional) |
+| [ADR-009](./ADR-009-platform-ports.md) | Platform ports (metadata, storage, identity, notifications) |
+| [ADR-010](./ADR-010-better-auth.md) | Better Auth & Third-Party Integration Vault |
+
+Add new ADRs by copying an existing file; do not renumber accepted ADRs.

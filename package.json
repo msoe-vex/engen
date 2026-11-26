@@ -1,0 +1,18 @@
+{
+  "name": "engineering-notebook-editor-monorepo",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "services/*"
+  ],
+  "scripts": {
+    "postinstall": "npm run build:shared",
+    "build:shared": "npm run build -w @engineering-notebook/shared",
+    "dev:core": "npm run dev -w engineering-notebook-core-service",
+    "dev:collab": "npm run dev -w engineering-notebook-collab-service",
+    "install:all": "npm install && npm install --prefix website"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

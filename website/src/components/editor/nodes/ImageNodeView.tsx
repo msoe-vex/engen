@@ -62,7 +62,12 @@ export const ImageNodeView = ({ node, selected, updateAttributes, deleteNode, db
       }
 
       try {
-        const { store } = await import("@/lib/store");
+        // Legacy local store removed in cloud-only build
+        const store = null as unknown as {
+          assetCache: Map<string, string>;
+          getAssetBase64: (p: string) => Promise<string | null>;
+        } | null;
+        if (!store) return;
 
         // 1. Check in-memory session cache (0ms)
         if (store.assetCache.has(targetPath)) {
@@ -192,20 +197,9 @@ export const ImageNodeView = ({ node, selected, updateAttributes, deleteNode, db
                   previewOriginal = await convertSvgToPng(dataUrl);
                 }
 
-                const { store } = await import("@/lib/store");
-                store.assetCache.set(newPath, compressed.dataUrl);
-                store.assetCache.set(originalPath, previewOriginal);
-
                 updateAttributes({ src: compressed.dataUrl, originalSrc: dataUrl, filePath: newPath, originalFilePath: originalPath });
                 setResolvedSrc(compressed.dataUrl);
                 setIsLoading(false);
-
-                // Persist immediately so replacing with the same image after a delete
-                // overwrites any pending asset delete (hash path unchanged).
-                store.enqueue(async () => {
-                  await store.persistFile(originalPath, dataUrl.split(",")[1] || "", `Original Asset: ${originalPath}`, true);
-                  await store.persistFile(newPath, compressed.base64, `Compressed Asset: ${newPath}`, true);
-                });
 
                 events.emit(EventNames.SHOW_NOTIFICATION, { message: 'Image replaced', type: 'success' });
               } catch (err) {

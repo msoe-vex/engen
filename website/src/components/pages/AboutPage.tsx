@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import Logo from "@/components/icons/Logo";
 import GithubIcon from "@/components/icons/GithubIcon";
+import { GITHUB_ISSUES_URL } from "@/lib/constants";
 
 const BLINK_CSS = `
   @keyframes blink {
@@ -25,9 +26,16 @@ interface AboutPageProps {
   onClose: () => void;
   onTryIt: () => void;
   onOpenHelp?: () => void;
+  /** Under AppChrome — skip overlay nav chrome. */
+  isEmbedded?: boolean;
 }
 
-export default function AboutPage({ onClose, onTryIt, onOpenHelp }: AboutPageProps) {
+export default function AboutPage({
+  onClose,
+  onTryIt,
+  onOpenHelp,
+  isEmbedded = false,
+}: AboutPageProps) {
   const { setTheme, resolvedTheme } = useTheme();
 
   const handleAnchorClick = (callback?: () => void) => (e: React.MouseEvent<HTMLAnchorElement>) => {
@@ -45,69 +53,78 @@ export default function AboutPage({ onClose, onTryIt, onOpenHelp }: AboutPagePro
   };
 
   return (
-    <div className="fixed inset-0 z-1000 bg-nb-bg overflow-y-auto custom-scrollbar" style={{ scrollbarGutter: 'stable' }}>
+    <div
+      className={
+        isEmbedded
+          ? "bg-nb-surface"
+          : "fixed inset-0 z-1000 overflow-y-auto bg-nb-bg custom-scrollbar"
+      }
+      style={isEmbedded ? undefined : { scrollbarGutter: "stable" }}
+    >
       <style dangerouslySetInnerHTML={{ __html: BLINK_CSS }} />
-      {/* Navigation */}
-      <div className="sticky top-0 z-10 bg-nb-bg/80 backdrop-blur-md border-b border-nb-outline-variant/30">
-        <div className="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
-          <Link
-            href="/"
-            onClick={handleAnchorClick(onClose)}
-            className="flex items-center gap-3 hover:opacity-70 transition-opacity cursor-pointer group"
-          >
-            <div className="w-8 h-8 rounded-lg bg-nb-primary flex items-center justify-center shadow-lg shadow-nb-primary/20 group-hover:scale-110 transition-transform">
-              <Logo className="text-white" size={20} strokeWidth={20} />
-            </div>
-            <span className="font-black tracking-tight text-nb-on-surface">ENGen</span>
-          </Link>
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
-              className="p-2 rounded-xl hover:bg-nb-surface-low text-nb-on-surface-variant transition-colors cursor-pointer"
-              title="Toggle Theme"
-            >
-              {resolvedTheme === "dark" ? <Sun size={20} /> : <Moon size={20} />}
-            </button>
-            {onOpenHelp && (
-              <Link
-                href="/help"
-                onClick={handleAnchorClick(onOpenHelp)}
-                className="px-4 py-2 rounded-xl border border-nb-outline-variant/30 text-nb-on-surface-variant text-xs font-black uppercase tracking-widest hover:bg-nb-surface-low transition-all active:scale-95 cursor-pointer"
-              >
-                Help & Docs
-              </Link>
-            )}
-            <Link
-              href="/"
-              onClick={handleAnchorClick(onTryIt)}
-              className="px-4 py-2 rounded-xl bg-nb-primary text-white text-xs font-black uppercase tracking-widest hover:bg-nb-primary-dim transition-all shadow-lg shadow-nb-primary/20 active:scale-95 cursor-pointer"
-            >
-              Try It
-            </Link>
+      {!isEmbedded && (
+        <div className="sticky top-0 z-10 border-b border-nb-outline-variant/30 bg-nb-bg/80 backdrop-blur-md">
+          <div className="mx-auto flex h-16 w-full max-w-[90rem] items-center justify-between px-6">
             <Link
               href="/"
               onClick={handleAnchorClick(onClose)}
-              className="p-2 rounded-xl hover:bg-nb-surface-low text-nb-on-surface-variant transition-colors cursor-pointer"
-              title="Close"
+              className="group flex cursor-pointer items-center gap-3 transition-opacity hover:opacity-70"
             >
-              <ArrowRight size={20} />
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-nb-primary shadow-lg shadow-nb-primary/20 transition-transform group-hover:scale-110">
+                <Logo className="text-white" size={20} strokeWidth={20} />
+              </div>
+              <span className="font-black tracking-tight text-nb-on-surface">ENGen</span>
             </Link>
+            <div className="flex items-center gap-4">
+              <button
+                type="button"
+                onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+                className="cursor-pointer rounded-xl p-2 text-nb-on-surface-variant transition-colors hover:bg-nb-surface-low"
+                title="Toggle Theme"
+              >
+                {resolvedTheme === "dark" ? <Sun size={20} /> : <Moon size={20} />}
+              </button>
+              {onOpenHelp && (
+                <Link
+                  href="/help"
+                  onClick={handleAnchorClick(onOpenHelp)}
+                  className="cursor-pointer rounded-xl border border-nb-outline-variant/30 px-4 py-2 text-xs font-black tracking-widest text-nb-on-surface-variant uppercase transition-all hover:bg-nb-surface-low active:scale-95"
+                >
+                  Help & Docs
+                </Link>
+              )}
+              <Link
+                href="/"
+                onClick={handleAnchorClick(onTryIt)}
+                className="cursor-pointer rounded-xl bg-nb-primary px-4 py-2 text-xs font-black tracking-widest text-white uppercase shadow-lg shadow-nb-primary/20 transition-all hover:bg-nb-primary-dim active:scale-95"
+              >
+                Try It
+              </Link>
+              <Link
+                href="/"
+                onClick={handleAnchorClick(onClose)}
+                className="cursor-pointer rounded-xl p-2 text-nb-on-surface-variant transition-colors hover:bg-nb-surface-low"
+                title="Close"
+              >
+                <ArrowRight size={20} />
+              </Link>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Hero Section */}
       <section id="hero" className="relative py-20 lg:py-32 overflow-hidden min-h-[80vh] flex flex-col justify-center">
-        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-4xl h-full pointer-events-none">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-6xl h-full pointer-events-none">
           <div className="absolute top-1/4 left-0 w-64 h-64 bg-nb-primary/10 rounded-full blur-[100px]" />
           <div className="absolute bottom-1/4 right-0 w-64 h-64 bg-nb-tertiary/10 rounded-full blur-[100px]" />
         </div>
 
-        <div className="max-w-4xl mx-auto px-6 text-center relative">
+        <div className="mx-auto w-full max-w-[80rem] px-6 lg:px-10 text-center relative">
           <h1 className="text-5xl lg:text-7xl font-black text-nb-on-surface leading-[1.1] tracking-tight mb-8">
             Professional Engineering Notebooks, <span className="text-nb-primary">Simplified.</span>
           </h1>
-          <p className="text-lg lg:text-xl text-nb-on-surface-variant/80 mb-12 leading-relaxed max-w-2xl mx-auto font-medium">
+          <p className="text-lg lg:text-xl text-nb-on-surface-variant/80 mb-12 leading-relaxed max-w-3xl mx-auto font-medium">
             We built this because engineering notebooks are tedious to document and format.
             Spend less time wrestling with margins and more time on documenting your design.
           </p>
@@ -125,11 +142,11 @@ export default function AboutPage({ onClose, onTryIt, onOpenHelp }: AboutPagePro
 
       {/* Motivation Section */}
       <section id="motivation" className="py-24 bg-nb-surface border-y border-nb-outline-variant/30 overflow-hidden">
-        <div className="max-w-5xl mx-auto px-6">
+        <div className="mx-auto w-full max-w-[90rem] px-6 lg:px-10">
           <div className="text-center mb-16">
             <p className="text-[10px] font-black uppercase tracking-[0.3em] text-nb-primary mb-4">Why we built ENGen</p>
             <h2 className="text-4xl font-black text-nb-on-surface mb-4 tracking-tight">Paper notebooks slow teams down.</h2>
-            <p className="text-nb-on-surface-variant font-medium max-w-3xl mx-auto leading-relaxed">
+            <p className="text-nb-on-surface-variant font-medium max-w-4xl mx-auto leading-relaxed">
               Physical engineering notebooks are hard to collaborate on, hard to keep consistent, and awkward to combine with digital resources like images, tables, and code. ENGen was built to make the process accessible to the whole team while still producing a professional, reusable notebook format.
             </p>
           </div>
@@ -168,7 +185,7 @@ export default function AboutPage({ onClose, onTryIt, onOpenHelp }: AboutPagePro
 
       {/* Detailed Features Grid */}
       <section id="features" className="py-24 bg-nb-surface-low overflow-hidden border-y border-nb-outline-variant/30">
-        <div className="max-w-5xl mx-auto px-6">
+        <div className="mx-auto w-full max-w-[90rem] px-6 lg:px-10">
           <div className="text-center mb-16">
             <h2 className="text-4xl font-black text-nb-on-surface mb-4 tracking-tight">Features that matter in practice</h2>
             <p className="text-nb-on-surface-variant font-medium">ENGen combines usability, automation, and long-term portability.</p>
@@ -225,8 +242,8 @@ export default function AboutPage({ onClose, onTryIt, onOpenHelp }: AboutPagePro
                 />
                 <FeatureCard
                   icon={<GithubIcon size={24} className="text-nb-primary" />}
-                  title="GitHub Sync"
-                  description="Keep the whole team on the same notebook with versioned cloud backup and a single source of truth."
+                  title="Cloud collaboration"
+                  description="Keep the whole team on the same notebook with live sync, org membership, and optional ZIP backup."
                 />
                 <FeatureCard
                   icon={<Sparkles size={24} className="text-nb-tertiary" />}
@@ -246,8 +263,8 @@ export default function AboutPage({ onClose, onTryIt, onOpenHelp }: AboutPagePro
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                 <FeatureCard
                   icon={<Play size={24} className="text-nb-primary" />}
-                  title="In-Browser PDF Engine"
-                  description="Compile directly in your browser with zero local software installs, LaTeX distributions, or toolchain headaches."
+                  title="Server PDF compile"
+                  description="Enqueue XeLaTeX jobs that produce competition-ready PDFs—no local TeX install required for the team."
                 />
                 <FeatureCard
                   icon={<Terminal size={24} className="text-nb-tertiary" />}
@@ -284,7 +301,7 @@ export default function AboutPage({ onClose, onTryIt, onOpenHelp }: AboutPagePro
 
       {/* Workflow Section with Carousel */}
       <section id="pipeline" className="py-24 overflow-hidden">
-        <div className="max-w-5xl mx-auto px-6">
+        <div className="mx-auto w-full max-w-[90rem] px-6 lg:px-10">
           <div className="text-center mb-16">
             <h2 className="text-4xl font-black text-nb-on-surface mb-4 tracking-tight">The Pipeline</h2>
             <p className="text-nb-on-surface-variant font-medium">From raw ideas to standard-compliant documentation.</p>
@@ -308,7 +325,7 @@ export default function AboutPage({ onClose, onTryIt, onOpenHelp }: AboutPagePro
 
       {/* Trust & Collaboration Grid */}
       <section id="trust" className="py-24 bg-nb-surface border-y border-nb-outline-variant/30 overflow-hidden">
-        <div className="max-w-5xl mx-auto px-6">
+        <div className="mx-auto w-full max-w-[90rem] px-6 lg:px-10">
           <div className="text-center mb-16">
             <h2 className="text-4xl font-black text-nb-on-surface mb-4 tracking-tight">Trust & Collaboration</h2>
             <p className="text-nb-on-surface-variant font-medium">Built for professional engineering standards.</p>
@@ -335,12 +352,12 @@ export default function AboutPage({ onClose, onTryIt, onOpenHelp }: AboutPagePro
                   <GithubIcon size={24} />
                 </div>
                 <div>
-                  <h3 className="font-black text-nb-on-surface">GitHub Integration</h3>
-                  <p className="text-xs text-nb-on-surface-variant">Professional Version Control.</p>
+                  <h3 className="font-black text-nb-on-surface">Team access control</h3>
+                  <p className="text-xs text-nb-on-surface-variant">Orgs, teams, and restricted notebooks.</p>
                 </div>
               </div>
               <p className="text-sm text-nb-on-surface-variant leading-relaxed font-medium">
-                Sync directly with your team&apos;s GitHub repository. Benefit from professional version control, branch management, and a unified source of truth for your notebook.
+                Collaborate inside organizations with invites, teams, and per-notebook access. Export ZIP archives when you need an offline backup—the live notebook remains the season source of truth.
               </p>
             </div>
 
@@ -350,12 +367,12 @@ export default function AboutPage({ onClose, onTryIt, onOpenHelp }: AboutPagePro
                   <Lock size={24} />
                 </div>
                 <div>
-                  <h3 className="font-black text-nb-on-surface">Privacy First</h3>
-                  <p className="text-xs text-nb-on-surface-variant">No central servers.</p>
+                  <h3 className="font-black text-nb-on-surface">Access boundaries</h3>
+                  <p className="text-xs text-nb-on-surface-variant">You control who sees what.</p>
                 </div>
               </div>
               <p className="text-sm text-nb-on-surface-variant leading-relaxed font-medium">
-                Your engineering designs are your own. Content is never stored on our servers. It lives solely on your machine or within your private GitHub repository.
+                Notebook content syncs through the product backend so teammates can edit together. Membership, restricted notebooks, and optional public PDF links define who can read or share your work.
               </p>
             </div>
 
@@ -365,12 +382,12 @@ export default function AboutPage({ onClose, onTryIt, onOpenHelp }: AboutPagePro
                   <WifiOff size={24} />
                 </div>
                 <div>
-                  <h3 className="font-black text-nb-on-surface">Offline Capability</h3>
-                  <p className="text-xs text-nb-on-surface-variant">Document anywhere.</p>
+                  <h3 className="font-black text-nb-on-surface">Portable records</h3>
+                  <p className="text-xs text-nb-on-surface-variant">LaTeX you can take with you.</p>
                 </div>
               </div>
               <p className="text-sm text-nb-on-surface-variant leading-relaxed font-medium">
-                Document your work at the workbench or in the pits. Because the editor and LaTeX engine run entirely in your browser, you don&apos;t need a stable connection to stay productive.
+                Export ZIP archives for offline backup or migration. Generated LaTeX stays standard plain text you can compile elsewhere even if you leave the hosted app.
               </p>
             </div>
           </div>
@@ -391,7 +408,7 @@ export default function AboutPage({ onClose, onTryIt, onOpenHelp }: AboutPagePro
 
       {/* Origin Section */}
       <section id="origin" className="py-24 bg-nb-surface-low">
-        <div className="max-w-4xl mx-auto px-6">
+        <div className="mx-auto w-full max-w-[80rem] px-6 lg:px-10">
           <div className="text-center mb-12">
             <div className="inline-flex items-center gap-4 mb-8">
               <Image src="/rr.svg" alt="Raider Robotics" width={80} height={80} className="h-20 w-auto" />
@@ -453,14 +470,14 @@ export default function AboutPage({ onClose, onTryIt, onOpenHelp }: AboutPagePro
 
       {/* Footer */}
       <footer className="py-12 border-t border-nb-outline-variant/30">
-        <div className="max-w-5xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-6">
+        <div className="mx-auto w-full max-w-[90rem] px-6 lg:px-10 flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="flex items-center gap-3 grayscale opacity-30 hover:opacity-100 hover:grayscale-0 transition-all cursor-default">
             <Image src="/rr.svg" alt="Raider Robotics" width={24} height={24} className="w-6 h-6" />
             <span className="text-[10px] font-black uppercase tracking-widest text-nb-on-surface">Made by MSOE Raider Robotics</span>
           </div>
           <div className="flex flex-wrap items-center gap-6">
             <a
-              href="https://github.com/msoe-vex/engineering-notebook-editor"
+              href="https://github.com/msoe-vex/engen"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-nb-on-surface-variant hover:text-nb-primary transition-colors cursor-pointer"
@@ -485,6 +502,14 @@ export default function AboutPage({ onClose, onTryIt, onOpenHelp }: AboutPagePro
                 Help & Docs
               </Link>
             )}
+            <a
+              href={GITHUB_ISSUES_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[10px] font-black uppercase tracking-widest text-nb-on-surface-variant hover:text-nb-primary transition-colors cursor-pointer"
+            >
+              Report Issue
+            </a>
           </div>
         </div>
       </footer>

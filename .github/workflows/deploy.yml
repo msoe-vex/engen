@@ -1,0 +1,168 @@
+name: Deploy to GCP Cloud Run
+
+on:
+  push:
+    branches: [dev, main]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  prep-registry:
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION || 'us-central1' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Ensure Artifact Registry exists
+        working-directory: infra/terraform
+        run: |
+          gcloud storage buckets create "gs://${{ env.GCP_PROJECT_ID }}-tfstate" --location="${{ env.GCP_REGION }}" 2>/dev/null || true
+          terraform init -backend-config="bucket=${{ env.GCP_PROJECT_ID }}-tfstate" -backend-config="prefix=terraform/state"
+          terraform import \
+            -var="project_id=${{ env.GCP_PROJECT_ID }}" \
+            -var="region=${{ env.GCP_REGION }}" \
+            -var="app_url=${{ vars.APP_URL }}" \
+            google_artifact_registry_repository.repo "projects/${{ env.GCP_PROJECT_ID }}/locations/${{ env.GCP_REGION }}/repositories/engineering-notebook" 2>/dev/null || true
+          terraform apply -target=google_artifact_registry_repository.repo -auto-approve \
+            -var="project_id=${{ env.GCP_PROJECT_ID }}" \
+            -var="region=${{ env.GCP_REGION }}" \
+            -var="app_url=${{ vars.APP_URL }}"
+
+  build-images:
+    needs: prep-registry
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - name: website
+            dockerfile: website/Dockerfile
+          - name: core
+            dockerfile: services/core/Dockerfile
+          - name: collab
+            dockerfile: services/collab/Dockerfile
+          - name: compile
+            dockerfile: services/compile/Dockerfile
+          - name: judge
+            dockerfile: services/judge/Dockerfile
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION || 'us-central1' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Resolve project number for Cloud Run URLs
+        id: project-info
+        run: |
+          PROJECT_NUMBER=$(gcloud projects describe "${{ env.GCP_PROJECT_ID }}" --format="value(projectNumber)")
+          echo "project_number=${PROJECT_NUMBER}" >> $GITHUB_OUTPUT
+
+      - name: Build and push ${{ matrix.service.name }}
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ matrix.service.dockerfile }}
+          push: true
+          tags: ${{ env.GCP_REGION }}-docker.pkg.dev/${{ env.GCP_PROJECT_ID }}/engineering-notebook/${{ matrix.service.name }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.service.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service.name }}
+          build-args: |
+            NEXT_PUBLIC_CORE_API_URL=https://core-${{ steps.project-info.outputs.project_number }}.${{ env.GCP_REGION }}.run.app
+            NEXT_PUBLIC_COLLAB_WS_URL=wss://collab-${{ steps.project-info.outputs.project_number }}.${{ env.GCP_REGION }}.run.app
+            NEXT_PUBLIC_APP_URL=${{ vars.APP_URL }}
+
+  deploy:
+    needs: build-images
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
+    env:
+      GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ vars.GCP_REGION || 'us-central1' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Sync secrets to GCP Secret Manager
+        run: |
+          sync_secret() {
+            local name="$1"
+            local val="$2"
+            if [ -n "$val" ]; then
+              gcloud secrets create "$name" --replication-policy="automatic" 2>/dev/null || true
+              printf '%s' "$val" | gcloud secrets versions add "$name" --data-file=-
+            fi
+          }
+          sync_secret "better-auth-secret" "${{ secrets.BETTER_AUTH_SECRET }}"
+          sync_secret "internal-service-secret" "${{ secrets.INTERNAL_SERVICE_SECRET }}"
+          sync_secret "google-client-secret" "${{ secrets.GOOGLE_CLIENT_SECRET }}"
+          sync_secret "github-client-secret" "${{ secrets.OAUTH_GITHUB_CLIENT_SECRET }}"
+          sync_secret "discord-client-secret" "${{ secrets.DISCORD_CLIENT_SECRET }}"
+          sync_secret "linkedin-client-secret" "${{ secrets.LINKEDIN_CLIENT_SECRET }}"
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Terraform Apply
+        working-directory: infra/terraform
+        run: |
+          terraform init -backend-config="bucket=${{ env.GCP_PROJECT_ID }}-tfstate" -backend-config="prefix=terraform/state"
+          for s in better-auth-secret internal-service-secret google-client-secret github-client-secret discord-client-secret linkedin-client-secret; do
+            terraform import \
+              -var="project_id=${{ env.GCP_PROJECT_ID }}" \
+              -var="region=${{ env.GCP_REGION }}" \
+              -var="app_url=${{ vars.APP_URL }}" \
+              "google_secret_manager_secret.secrets[\"$s\"]" \
+              "projects/${{ env.GCP_PROJECT_ID }}/secrets/$s" 2>/dev/null || true
+          done
+          terraform import \
+            -var="project_id=${{ env.GCP_PROJECT_ID }}" \
+            -var="region=${{ env.GCP_REGION }}" \
+            -var="app_url=${{ vars.APP_URL }}" \
+            google_firestore_index.verification_identifier_created_at "projects/${{ env.GCP_PROJECT_ID }}/databases/(default)/collectionGroups/verification/indexes/CICAgOjXh4EK" 2>/dev/null || true
+          terraform apply -auto-approve \
+            -var="project_id=${{ env.GCP_PROJECT_ID }}" \
+            -var="region=${{ env.GCP_REGION }}" \
+            -var="image_tag=${{ github.sha }}" \
+            -var="app_url=${{ vars.APP_URL }}" \
+            -var="google_client_id=${{ vars.GOOGLE_CLIENT_ID }}" \
+            -var="github_client_id=${{ vars.OAUTH_GITHUB_CLIENT_ID }}" \
+            -var="discord_client_id=${{ vars.DISCORD_CLIENT_ID }}" \
+            -var="linkedin_client_id=${{ vars.LINKEDIN_CLIENT_ID }}"

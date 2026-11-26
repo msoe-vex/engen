@@ -263,10 +263,8 @@ export function NodeViewInput({
       {showError && (
         <ValidationTooltip
           errors={[missingMessage]}
-          size={12}
-          position="bottom"
           className="shrink-0"
-          iconContainerClassName="text-amber-500"
+          triggerClassName="text-amber-500"
         />
       )}
     </div>
