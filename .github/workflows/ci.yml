@@ -24,10 +24,11 @@ jobs:
           npm --prefix website run lint
           npm --prefix website test
 
-      - name: Typecheck core
+      - name: Typecheck & test core
         run: |
           npm --prefix services/core ci
           npx tsc --project services/core/tsconfig.json --noEmit
+          npm --prefix services/core test
 
       - name: Typecheck collab
         run: |
