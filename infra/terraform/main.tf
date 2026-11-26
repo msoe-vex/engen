@@ -101,6 +101,12 @@ resource "google_secret_manager_secret_iam_member" "cloud_run_secret_accessor" {
   member    = "serviceAccount:${data.google_project.project.number}-compute@developer.gserviceaccount.com"
 }
 
+resource "google_project_iam_member" "compute_token_creator" {
+  project = var.project_id
+  role    = "roles/iam.serviceAccountTokenCreator"
+  member  = "serviceAccount:${data.google_project.project.number}-compute@developer.gserviceaccount.com"
+}
+
 resource "google_pubsub_topic" "compile_jobs" {
   name       = "notebook-jobs-compile"
   depends_on = [google_project_service.apis]

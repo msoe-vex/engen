@@ -32,6 +32,7 @@ for role in \
   roles/run.admin \
   roles/artifactregistry.admin \
   roles/iam.serviceAccountUser \
+  roles/iam.serviceAccountTokenCreator \
   roles/secretmanager.admin \
   roles/storage.admin \
   roles/pubsub.admin \
