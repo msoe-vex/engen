@@ -78,5 +78,5 @@ We implement modern technical safeguards to protect your data:
 
 ## 9. Contact Us
 If you have questions about this Privacy Policy or wish to request data deletion, please contact the maintainers at:
-* **Email:** `vex@msoe.edu`
+* **Email:** `accounts@msoevex.com`
 * **Repository:** [https://github.com/msoe-vex/engen](https://github.com/msoe-vex/engen)

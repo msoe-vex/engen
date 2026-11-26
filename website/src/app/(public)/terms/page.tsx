@@ -98,8 +98,8 @@ export default function TermsOfServicePage() {
             <p className="text-nb-body leading-relaxed text-nb-on-surface-variant">
               These Terms are governed by the laws of the State of Wisconsin, USA. Questions regarding these Terms may be directed
               to{" "}
-              <a href="mailto:vex@msoe.edu" className="font-medium text-nb-primary underline hover:opacity-85">
-                vex@msoe.edu
+              <a href="mailto:accounts@msoevex.com" className="font-medium text-nb-primary underline hover:opacity-85">
+                accounts@msoevex.com
               </a>.
             </p>
           </section>

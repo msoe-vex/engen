@@ -101,8 +101,8 @@ export default function PrivacyPolicyPage() {
             <h2 className="text-xl font-semibold text-nb-on-surface">7. Contact Information</h2>
             <p className="text-nb-body leading-relaxed text-nb-on-surface-variant">
               If you have any questions or data deletion requests regarding this policy, please reach out to us at{" "}
-              <a href="mailto:vex@msoe.edu" className="font-medium text-nb-primary underline hover:opacity-85">
-                vex@msoe.edu
+              <a href="mailto:accounts@msoevex.com" className="font-medium text-nb-primary underline hover:opacity-85">
+                accounts@msoevex.com
               </a>{" "}
               or via our{" "}
               <a

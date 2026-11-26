@@ -71,5 +71,5 @@ To the maximum extent permitted by applicable law, MSOE VEX Robotics, its mentor
 These Terms are governed by the laws of the State of Wisconsin, USA.
 
 For questions regarding these Terms, contact:
-* **Email:** `vex@msoe.edu`
+* **Email:** `accounts@msoevex.com`
 * **Repository:** [https://github.com/msoe-vex/engen](https://github.com/msoe-vex/engen)
