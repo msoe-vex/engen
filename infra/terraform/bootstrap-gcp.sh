@@ -29,6 +29,7 @@ gcloud iam service-accounts create "${SA_NAME}" \
   --project="${PROJECT_ID}" || true
 
 for role in \
+  roles/resourcemanager.projectIamAdmin \
   roles/run.admin \
   roles/artifactregistry.admin \
   roles/iam.serviceAccountUser \
