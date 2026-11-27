@@ -150,10 +150,11 @@
   - `services/core/src/routes/internalCompile.ts`
 - **Implementation:**
   - Add `exists(key: string): Promise<boolean>` (using GCS `file.exists()`) and `copyObject(srcKey: string, dstKey: string): Promise<void>` (using GCS `file.copy()`) to `StoragePort` and `GcsStorage`.
-  - Add `getSignedPutUrl(key: string, contentType: string, expiresInSec?: number): Promise<string>` to `StoragePort` / `GcsStorage` (with local fake-gcs / proxy fallback when running in local dev without IAM signing).
+  - Update existing `StoragePort.getSignedUrl(key, action, expiresMs?, contentType?)` so `"write"` signed URLs bind `contentType` in GCS V4 signing.
+  - Add a `cors` block to `google_storage_bucket.notebook_assets` in `infra/terraform/main.tf` allowing `PUT`/`GET` from `var.app_url` (and `http://localhost:3000`).
   - Update `resolveExportPdfKey()` (`recordCompileExport.ts` L304–331) to call `storage.exists()` instead of `storage.getObject()` (stops downloading entire PDFs into Core memory just to check existence).
   - Update `saveCurrentPreviewAsVersion()` (`recordCompileExport.ts` L105–118) to use `storage.copyObject()`.
-  - Migrate large browser/worker uploads (notebook assets, rubric source files, compiled PDFs) to a 2-step flow: `POST .../upload-url` -> direct `PUT` to signed GCS URL -> `POST .../confirm` (or keep streaming `putObjectStream` fallback for local emulator).
+  - Migrate large browser/worker uploads (notebook assets, rubric source files, compiled PDFs) to a 2-step flow: `POST .../upload-url` -> direct `PUT` to signed GCS URL -> `POST .../confirm` (keeping `putObjectStream` fallback for local `fake-gcs-server`).
 
 ### 3.3 Standardize Core API routes (Plural REST URLs, no `/api` prefix)
 - **Files:** `services/core/src/routes/*.ts`, `website/src/lib/cloud/api.ts`, `services/compile/src/coreClient.ts`, `services/judge/app/core_client.py`, `services/collab/src/index.ts`
